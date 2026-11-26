@@ -1,9 +1,10 @@
 // ⌘K destinations: where a record hit opens, and screens reachable from ⌘K outside the menu (src/lib/nav.ts).
-import { ASSISTANTS_NAV, visibleItems, type NavGroup } from "./nav";
+import { ASSISTANTS_NAV, type NavGroup } from "./nav";
 
+/** ⌘K lists the complete role-filtered catalogue: advanced and sidebar-hidden (paletteOnly) links included. */
 export function paletteItems(group: NavGroup, leader: boolean) {
-  const items = visibleItems(group, leader, true);
-  return group.key === "settings" ? [...items, ASSISTANTS_NAV] : items;
+  const items = group.items.filter((i) => !i.leadersOnly || leader);
+  return group.key === "more" ? [...items, ASSISTANTS_NAV] : items;
 }
 export type HitKind = "Cuenta" | "Lead" | "Persona" | "Deal";
 

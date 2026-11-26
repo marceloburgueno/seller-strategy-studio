@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { AGENT_ICON, NAV_ICONS } from "./nav";
 
 // NK-0168: icons always come with their text. Outside the shadcn primitives and IconText itself,
 // a lucide icon may only be passed to <IconText icon={…}>, never rendered on its own as <Icon />.
@@ -65,5 +66,22 @@ describe("NK-0168 icon rule", () => {
         .map(([m]) => `${p}: ${m}`),
     );
     expect(bad).toEqual([]);
+  });
+  it("navigation icons (Ronda 2A) are registered once per concept and never reuse an action icon", () => {
+    const nav = { ...NAV_ICONS, agent: AGENT_ICON };
+    const icons = Object.values(nav);
+    expect(new Set(icons).size).toBe(icons.length);
+    const names = icons.map((i) => i.displayName);
+    for (const reserved of ["Trash2", "Eraser", "Ban", "X", "Check", "Spline", "Cable"])
+      expect(
+        names.filter((n) => n === reserved).length,
+        `${reserved} belongs to its own concept`,
+      ).toBeLessThanOrEqual(reserved === "Spline" || reserved === "Cable" ? 1 : 0);
+  });
+  it("the shell renders nav, bottom bar and agent icons only through IconText", () => {
+    const shell = readFileSync("src/routes/_authenticated/route.tsx", "utf8");
+    expect(shell).toMatch(/<IconText icon=\{NAV_ICONS\[t\.to\]\}/);
+    expect(shell).toMatch(/<IconText icon=\{AGENT_ICON\}/);
+    expect(shell).toMatch(/<IconText icon=\{icon\} size="nav">/);
   });
 });

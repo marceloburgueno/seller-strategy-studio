@@ -16,8 +16,15 @@ import {
 import { useAgent } from "@/components/agent";
 import { useMe } from "@/hooks/use-me";
 import { canUseAdvisor } from "@/lib/advisor";
-import { NAV_GROUPS } from "@/lib/nav";
+import { NAV_GROUPS, type NavGroup } from "@/lib/nav";
 import { hitTarget, paletteItems, type HitKind } from "@/lib/palette";
+
+// The sidebar's «Hoy» has no visible title and «Más» only means something next to the menu.
+const PALETTE_HEADINGS: Record<NavGroup["key"], string> = {
+  daily: "Ir a",
+  strategy: "Estrategia",
+  more: "Más pantallas",
+};
 
 type Hit = { kind: HitKind; id: string; name: string; sub: string | null };
 
@@ -149,7 +156,7 @@ export function CommandPalette({
           </CommandItem>
         </CommandGroup>
         {NAV_GROUPS.map((g) => (
-          <CommandGroup key={g.key} heading={g.title || "Ir a"}>
+          <CommandGroup key={g.key} heading={PALETTE_HEADINGS[g.key]}>
             {paletteItems(g, leader).map((n) => (
               <CommandItem
                 key={n.to}

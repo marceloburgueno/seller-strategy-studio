@@ -97,6 +97,30 @@ describe("CA-8 touch targets below md", () => {
   });
 });
 
+describe("Ronda 2A: shell navigation touch targets below md", () => {
+  const shell = src("../routes/_authenticated/route.tsx");
+  const fn = (name: string) => {
+    const at = shell.indexOf(`function ${name}(`);
+    const next = shell.indexOf("\nfunction ", at + 1);
+    return shell.slice(at, next < 0 ? undefined : next);
+  };
+
+  it("bottom bar tabs keep a 60 px bar, 44 px minimum per tab and an icon over each label", () => {
+    const bar = fn("BottomBar");
+    expect(bar).toContain("h-[calc(3.75rem+env(safe-area-inset-bottom))]");
+    expect(bar).toMatch(/const item =\s*"[^"]*min-h-11[^"]*flex-1/);
+    expect(bar).toContain("<IconText icon={NAV_ICONS[t.to]}");
+    expect(bar).toContain("<IconText icon={AGENT_ICON}");
+  });
+
+  it("sidebar links, group toggles, the setup pill and the user menu are 44 px tall on mobile only", () => {
+    expect(shell).toMatch(/const linkClass =\s*"[^"]*min-h-11[^"]*md:min-h-0/);
+    expect(shell).toMatch(/aria-expanded=\{open\}\s*className="[^"]*min-h-11[^"]*md:min-h-8/);
+    expect(fn("SetupPill")).toMatch(/min-h-11[^"]*md:min-h-8/);
+    expect(fn("UserMenu")).toContain("min-h-11");
+  });
+});
+
 describe("CA-9 from md up the sizes stay", () => {
   it("Button default and sm, TabsList and TabsTrigger keep their md heights", () => {
     render(
