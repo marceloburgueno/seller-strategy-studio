@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { validatedUser } from "@/lib/session";
 import { isSessionEnding } from "@/lib/session-ending";
 import { currencySymbol, formatMoney } from "@/lib/money";
+import { demoMe, isDemoMode } from "@/lib/demo-mode";
 
 export type Membership = {
   org_id: string;
@@ -32,6 +33,8 @@ export const meQuery = queryOptions({
   queryFn: async () => {
     // Sign-out in progress: «no user» is the true answer, and no read leaves with the old token (NK-0169/F4).
     if (isSessionEnding()) return null;
+    // Ronda 3B: local demo (dev server only): the fictitious «Demo GTM» company, no Supabase account.
+    if (import.meta.env.DEV && isDemoMode()) return demoMe();
     // Per-token validated user shared with the route guard: no extra /auth/v1/user per navigation.
     const user = await validatedUser();
     if (!user) {
