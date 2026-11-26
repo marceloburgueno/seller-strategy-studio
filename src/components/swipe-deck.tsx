@@ -28,6 +28,7 @@ export function SwipeDeck<T extends { id: string }>({
   undoMs = 5000,
   keyboard = true,
   wordButtons,
+  intercept,
 }: {
   items: T[];
   /** One set for every card, or one per card (strategic suggestions say «Aceptar» instead of «Hacer»). */
@@ -40,6 +41,8 @@ export function SwipeDeck<T extends { id: string }>({
   keyboard?: boolean;
   /** Cards that say what each button does in words (Aceptar, Más tarde, Descartar) instead of ✕ and ✓. */
   wordButtons?: (item: T) => boolean;
+  /** Return true to handle a decision yourself (e.g. open a form first): the card stays in the deck and nothing commits. */
+  intercept?: (item: T, dir: SwipeDir) => boolean;
 }) {
   const labelsOf = (i: T): DeckLabels => (typeof labels === "function" ? labels(i) : labels);
   const [gone, setGone] = useState<Map<string, SwipeDir>>(new Map());
@@ -56,6 +59,7 @@ export function SwipeDeck<T extends { id: string }>({
   function decide(dir: SwipeDir) {
     if (!current) return;
     const item = current;
+    if (intercept?.(item, dir)) return;
     setExit(dir);
     setGone((g) => new Map(g).set(item.id, dir));
     setStats((s) => ({ ...s, [dir]: s[dir] + 1 }));

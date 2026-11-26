@@ -1,8 +1,7 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { SuggestionDeck } from "@/components/suggestion-deck";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useJob } from "@/components/background";
-import { Page, Empty } from "@/components/page";
-import { SuggestionCard, useSuggestions } from "@/components/suggestions";
+import { Page, Empty, ScreenState } from "@/components/page";
+import { SuggestionInbox, useRecheckSuggestions, useSuggestions } from "@/components/suggestions";
 import { AssistantActions } from "@/components/assistant-actions";
 import { StrategyChanges } from "@/components/strategy-execute";
 import { SuggestionBoard } from "@/components/suggestion-board";
@@ -30,31 +29,23 @@ export const Route = createFileRoute("/_authenticated/inbox")({
       { name: "twitter:card", content: "summary" },
     ],
   }),
-  validateSearch: (s: Record<string, unknown>): { vista?: "lista" } => ({
-    vista: s.vista === "lista" ? "lista" : undefined,
-  }),
   component: Inbox,
 });
 
 function Inbox() {
-  const { data = [], isLoading } = useSuggestions();
+  const { data = [], isPending, error, refetch } = useSuggestions();
   const { data: me } = useMe();
   const qc = useQueryClient();
+  const recheck = useRecheckSuggestions();
   const weekly = useJob("weekly_report", {
     onDone: () => qc.invalidateQueries({ queryKey: ["suggestions"] }),
   });
   const canReport = (me?.roles ?? []).some((r) => r === "owner" || r === "sales_leader");
-  const search = Route.useSearch();
-  const navigate = useNavigate({ from: "/inbox" });
-  const list = search.vista === "lista";
-  const groups = [1, 2, 3]
-    .map((p) => ({ p, items: data.filter((s) => s.priority === p) }))
-    .filter((g) => g.items.length);
   return (
     <Page
       eyebrow="Sugerencias"
       title={
-        isLoading
+        isPending
           ? "Sugerencias"
           : suggestionsHeadline({
               pending: data.length,
@@ -69,57 +60,41 @@ function Inbox() {
         ) : undefined
       }
     >
-      <p className="-mt-4 mb-6 max-w-2xl text-sm text-muted-foreground">
-        Desliza a la derecha para hacer, a la izquierda para descartar y arriba para dejarlo para
-        más tarde. Nada cambia sin tu decisión.
-      </p>
       <Tabs defaultValue="me">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <TabsList>
-            <TabsTrigger value="me">Para mí</TabsTrigger>
-            <TabsTrigger value="team">Equipo</TabsTrigger>
-          </TabsList>
-          <div className="flex gap-1">
-            <Button
-              size="sm"
-              variant={list ? "outline" : "default"}
-              onClick={() => navigate({ search: {} })}
-            >
-              Mazo
-            </Button>
-            <Button
-              size="sm"
-              variant={list ? "default" : "outline"}
-              onClick={() => navigate({ search: { vista: "lista" } })}
-            >
-              Lista
-            </Button>
-          </div>
-        </div>
+        <TabsList className="mb-6">
+          <TabsTrigger value="me">Para mí</TabsTrigger>
+          <TabsTrigger value="team">Equipo</TabsTrigger>
+        </TabsList>
         <TabsContent value="team">
           <SuggestionBoard />
         </TabsContent>
         <TabsContent value="me">
           <AssistantActions />
           <StrategyChanges />
-          {!isLoading && data.length === 0 && <Empty>No hay sugerencias pendientes.</Empty>}
-          {!list && data.length > 0 && <SuggestionDeck items={data} />}
-          {list && (
-            <div className="space-y-8">
-              {groups.map((g) => (
-                <section key={g.p}>
-                  <h2 className="mb-3 text-2xl">
-                    {g.p === 1 ? "Urgente" : g.p === 2 ? "Importante" : "Cuando puedas"}
-                  </h2>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {g.items.map((s) => (
-                      <SuggestionCard key={s.id} s={s} />
-                    ))}
-                  </div>
-                </section>
-              ))}
-            </div>
-          )}
+          <ScreenState isPending={isPending} error={error} refetch={refetch}>
+            {data.length === 0 ? (
+              <Empty
+                title="Bandeja al día"
+                action={
+                  <Button size="sm" onClick={recheck}>
+                    Buscar sugerencias ahora
+                  </Button>
+                }
+                secondaryAction={
+                  <Button size="sm" variant="outline" asChild>
+                    <Link to="/deals" search={{ deal: undefined }}>
+                      Ir al pipeline
+                    </Link>
+                  </Button>
+                }
+              >
+                No hay sugerencias pendientes. Te aviso aquí cuando detecte un riesgo o un próximo
+                paso.
+              </Empty>
+            ) : (
+              <SuggestionInbox items={data} />
+            )}
+          </ScreenState>
         </TabsContent>
       </Tabs>
     </Page>

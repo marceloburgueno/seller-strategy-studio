@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateSetup } from "@/hooks/setup-invalidation";
@@ -13,7 +13,7 @@ import { linkTarget, resolvePlan } from "@/lib/proactive/resolve";
 import { actionTool } from "@/lib/json";
 import { errorText } from "@/lib/errors";
 import { limitStrategy, parseStrategy, strategyHeading } from "@/lib/strategy-suggestions";
-import { executeKind } from "@/components/strategy-execute";
+import { ExecuteDialog, executeKind } from "@/components/strategy-execute";
 import { StrategyBadge, StrategyEvidence } from "@/components/strategy-evidence";
 
 type S = NonNullable<ReturnType<typeof useSuggestions>["data"]>[number];
@@ -21,49 +21,77 @@ const PRIO: Record<number, string> = { 1: "Urgente", 2: "Importante", 3: "Cuando
 const DECISION = { right: "approve", left: "dismiss", up: "snooze" } as const;
 
 /** Sugerencias as a swipe deck: → hacer, ← descartar, ↑ en 3 días. */
-export function SuggestionDeck({ items, keyboard = true }: { items: S[]; keyboard?: boolean }) {
+export function SuggestionDeck({
+  items,
+  keyboard = true,
+  done,
+}: {
+  items: S[];
+  keyboard?: boolean;
+  /** What shows under «Todo decidido»; defaults to a link to the inbox, `null` shows nothing. */
+  done?: ReactNode;
+}) {
   const decide = useServerFn(decideSuggestion);
   const qc = useQueryClient();
   // Optional reason typed on a strategic card; read when the swipe commits (after the undo window).
   const reasons = useRef<Record<string, string>>({});
+  // CA-35/36: an experiment or a task opens its form first («Abrir y completar»); the card stays until it is saved.
+  const [completing, setCompleting] = useState<S | null>(null);
   return (
-    <SwipeDeck
-      items={limitStrategy(items, new Date())} // CA-7: at most 7 open strategic suggestions
-      keyboard={keyboard}
-      wordButtons={(s) => !!parseStrategy(s.strategy)}
-      labels={(s) =>
-        parseStrategy(s.strategy)
-          ? { right: "Aceptar", left: "Descartar", up: "Más tarde" }
-          : { right: "Hacer", left: "Descartar", up: "Más tarde" }
-      }
-      render={(s) => <DeckFace s={s} onReason={(v) => (reasons.current[s.id] = v)} />}
-      onCommit={async (s, dir) => {
-        try {
-          // CA-35/36: a test or a commercial action is accepted from the list, where the experiment or task can be edited first.
-          if (dir === "right" && executeKind(s))
-            throw new Error(
-              "Ábrela en la lista para completar el experimento o la tarea antes de aceptarla.",
-            );
-          const reason = parseStrategy(s.strategy) ? reasons.current[s.id]?.trim() : undefined;
-          const r = await decide({
-            data: { id: s.id, decision: DECISION[dir], ...(reason ? { reason } : {}) },
-          });
-          if (dir === "right") toast.success(r.message);
-          qc.invalidateQueries({ queryKey: ["suggestions"] });
-          invalidateSetup(qc); // «Hacer» on create_account runs on the server and adds an account
-        } catch (e) {
-          toast.error(errorText(e));
-          throw e;
+    <>
+      <SwipeDeck
+        items={limitStrategy(items, new Date())} // CA-7: at most 7 open strategic suggestions
+        keyboard={keyboard}
+        wordButtons={(s) => !!parseStrategy(s.strategy)}
+        labels={(s) =>
+          executeKind(s)
+            ? { right: "Abrir y completar", left: "Descartar", up: "Más tarde" }
+            : parseStrategy(s.strategy)
+              ? { right: "Aceptar", left: "Descartar", up: "Más tarde" }
+              : { right: "Hacer", left: "Descartar", up: "Más tarde" }
         }
-      }}
-      done={
-        <p className="mt-4 text-sm">
-          <Link to="/inbox" search={{ vista: "lista" }} className="underline underline-offset-4">
-            Ver la lista
-          </Link>
-        </p>
-      }
-    />
+        intercept={(s, dir) => {
+          if (dir !== "right" || !executeKind(s)) return false;
+          setCompleting(s);
+          return true;
+        }}
+        render={(s) => <DeckFace s={s} onReason={(v) => (reasons.current[s.id] = v)} />}
+        onCommit={async (s, dir) => {
+          try {
+            const reason = parseStrategy(s.strategy) ? reasons.current[s.id]?.trim() : undefined;
+            const r = await decide({
+              data: { id: s.id, decision: DECISION[dir], ...(reason ? { reason } : {}) },
+            });
+            if (dir === "right") toast.success(r.message);
+            qc.invalidateQueries({ queryKey: ["suggestions"] });
+            invalidateSetup(qc); // «Hacer» on create_account runs on the server and adds an account
+          } catch (e) {
+            toast.error(errorText(e));
+            throw e;
+          }
+        }}
+        done={
+          done === undefined ? (
+            <p className="mt-4 text-sm">
+              <Link to="/inbox" className="underline underline-offset-4">
+                Ver todas las sugerencias
+              </Link>
+            </p>
+          ) : (
+            done
+          )
+        }
+      />
+      {completing && (
+        <ExecuteDialog
+          key={completing.id}
+          s={completing}
+          open
+          onOpenChange={(o) => !o && setCompleting(null)}
+          reason={reasons.current[completing.id]}
+        />
+      )}
+    </>
   );
 }
 
