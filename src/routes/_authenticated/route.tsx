@@ -52,6 +52,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useNavAdvanced } from "@/hooks/use-nav-advanced";
+import { exitDemoMode, isDemoMode } from "@/lib/demo-mode";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -77,13 +78,20 @@ function Shell() {
   const { data: me } = useMe();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  // Ronda 3B: local demo mode (dev server only). Leaving it reloads /auth so no demo cache or patch survives.
+  const demo = import.meta.env.DEV && isDemoMode();
+  function leaveDemo() {
+    exitDemoMode();
+    window.location.replace("/auth");
+  }
   async function signOut() {
+    if (demo) return leaveDemo();
     await signOutAndClear(qc, supabase.auth);
     navigate({ to: "/auth", replace: true });
   }
   const role = me?.roles[0] as Role | undefined;
   const hasOrg = !!me?.currentOrg;
-  useLivePipeline(me?.currentOrg?.org_id);
+  useLivePipeline(demo ? undefined : me?.currentOrg?.org_id);
   const [navOpen, setNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useCollapsedSidebar();
   const path = useRouterState({ select: (r) => r.location.pathname });
@@ -267,6 +275,7 @@ function Shell() {
           </aside>
         )}
         <main className="min-w-0 flex-1">
+          {demo && <DemoBanner onExit={leaveDemo} />}
           {hasOrg && <TopBar onSearch={() => setPaletteOpen(true)} userId={me?.user.id} />}
           {!me ? null : hasOrg ? (
             <Outlet key={me.currentOrg?.org_id} />
@@ -278,6 +287,28 @@ function Shell() {
         {hasOrg && <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />}
       </div>
     </AgentProvider>
+  );
+}
+
+/** Ronda 3B: reminds that the data is fictitious and nothing reaches Supabase; «Salir» ends the demo. */
+function DemoBanner({ onExit }: { onExit: () => void }) {
+  return (
+    <div
+      role="status"
+      className="flex min-h-11 items-center justify-between gap-3 border-b border-hairline bg-lime-soft px-4 text-sm text-ink md:px-6 lg:px-10"
+    >
+      <span className="min-w-0 truncate">
+        <strong className="font-semibold">Modo demo local</strong>
+        <span className="hidden text-ink-mid sm:inline"> · datos ficticios, nada se guarda</span>
+      </span>
+      <button
+        type="button"
+        onClick={onExit}
+        className="min-h-11 shrink-0 px-1 font-medium underline decoration-hairline-firm underline-offset-4"
+      >
+        Salir
+      </button>
+    </div>
   );
 }
 

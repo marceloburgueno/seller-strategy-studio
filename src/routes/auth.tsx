@@ -12,6 +12,7 @@ import { oauthReturnPath } from "@/lib/oauth-return-path";
 import { errorText } from "@/lib/errors";
 import { track } from "@/lib/analytics";
 import { absoluteUrl } from "@/lib/site";
+import { demoAvailable, enterDemoMode } from "@/lib/demo-mode";
 
 // Set just before the Google redirect so the return can be measured as sign_up or login.
 const OAUTH_PENDING = "nokko-oauth-pending";
@@ -233,6 +234,18 @@ function AuthPage() {
           <p className="note">
             Al entrar podrás crear tu empresa o unirte a las que te hayan invitado.
           </p>
+          {/* Ronda 3B: only on the dev server (import.meta.env.DEV); never in a production build. */}
+          {import.meta.env.DEV && demoAvailable() && (
+            <button
+              type="button"
+              className="min-h-11 w-full text-sm text-ink-faint underline decoration-hairline underline-offset-4 hover:text-ink"
+              onClick={() => {
+                if (enterDemoMode()) window.location.assign("/home");
+              }}
+            >
+              Explorar en modo demo local
+            </button>
+          )}
         </form>
       </div>
     </div>
