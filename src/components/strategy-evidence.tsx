@@ -19,9 +19,10 @@ export function StrategyBadge({ m }: { m: StrategyMeta }) {
   );
 }
 
-export function StrategyEvidence({ m }: { m: StrategyMeta }) {
+/** `defaultOpen`: the evidence is already unfolded (the inbox detail shows it under «Por qué ahora»). */
+export function StrategyEvidence({ m, defaultOpen }: { m: StrategyMeta; defaultOpen?: boolean }) {
   return (
-    <details className="mt-2 text-sm">
+    <details className="mt-2 text-sm" open={defaultOpen}>
       <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
         Ver evidencia
       </summary>
