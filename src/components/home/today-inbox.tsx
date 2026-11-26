@@ -1,40 +1,52 @@
-// B3: the single inbox in Hoy. Reads what each screen already reads (RLS) and links to where it is decided.
-import { useState } from "react";
+// Ronda 2B: the single «Hoy» list in Inicio — meetings, approvals, tasks, agent actions, replies and suggestions
+// in clean rows with a colored dot per kind. Reads what each screen already reads (RLS) and links to where it is
+// decided. Order and rows are pure in src/lib/today-inbox.ts (tested).
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMe } from "@/hooks/use-me";
 import { useSuggestions } from "@/components/suggestions";
-import { Button } from "@/components/ui/button";
-import { Panel } from "@/components/page";
-import {
-  INBOX_FILTERS,
-  filterInbox,
-  inboxCounts,
-  mergeInbox,
-  type InboxFilter,
-  type InboxItem,
-} from "@/lib/today-inbox";
+import { canDecideApprovals } from "@/lib/roles";
+import { KIND_LABEL, mergeInbox, type InboxItem, type InboxKind } from "@/lib/today-inbox";
 
-const KIND_LABEL: Record<InboxItem["kind"], string> = {
-  sugerencia: "Sugerencia",
-  aprobacion: "Aprobación",
-  tarea: "Tarea",
-  agente: "Agente",
+const MAX_ROWS = 8;
+
+// One categorical color per kind (series palette): red, amber and green stay reserved for state.
+const DOT: Record<InboxKind, string> = {
+  reunion: "bg-series-1",
+  aprobacion: "bg-series-2",
+  tarea: "bg-series-3",
+  agente: "bg-series-4",
+  respuesta: "bg-series-5",
+  sugerencia: "bg-series-rest",
 };
 
-export function TodayInbox() {
+type Meeting = {
+  id: string;
+  title: string;
+  scheduled_at: string | null;
+  account_id: string | null;
+};
+
+export function TodayInbox({
+  meetings,
+  excludeSuggestionId,
+}: {
+  meetings: Meeting[];
+  /** The suggestion already shown in «Ahora», so it is not repeated here. */
+  excludeSuggestionId?: string | null;
+}) {
   const { data: me } = useMe();
   const userId = me?.user.id;
-  const leader = !!me?.roles.some((r) => r === "owner" || r === "sales_leader");
+  const orgId = me?.currentOrg?.org_id;
+  const approver = canDecideApprovals(me?.roles ?? []);
   const { data: suggestions = [] } = useSuggestions();
-  const [filter, setFilter] = useState<InboxFilter>("todo");
   const { data } = useQuery({
-    queryKey: ["today-inbox", userId, leader],
+    queryKey: ["today-inbox", userId, approver],
     enabled: !!userId,
     queryFn: async () => {
       const [appr, tasks, acts] = await Promise.all([
-        leader
+        approver
           ? supabase
               .from("approvals")
               .select("id,title,created_at")
@@ -57,68 +69,102 @@ export function TodayInbox() {
       return { approvals: appr.data ?? [], tasks: tasks.data ?? [], actions: acts.data ?? [] };
     },
   });
+  // Replies only exist with a linked mailbox; without one the row is not shown at all.
+  const { data: replies } = useQuery({
+    queryKey: ["home-replies", orgId],
+    enabled: !!orgId,
+    queryFn: async () => {
+      const { data: link } = await supabase
+        .from("mailbox_links")
+        .select("status")
+        .eq("org_id", orgId!)
+        .maybeSingle();
+      if (!link || link.status === "disconnected") return undefined;
+      const since = new Date(Date.now() - 7 * 864e5).toISOString();
+      const { count } = await supabase
+        .from("inbox_replies")
+        .select("id", { count: "exact", head: true })
+        .gte("received_at", since);
+      return count ?? 0;
+    },
+  });
   const today = new Date().toISOString().slice(0, 10);
   const items = mergeInbox(
     {
-      suggestions,
+      suggestions: suggestions.filter((s) => s.id !== excludeSuggestionId),
       approvals: data?.approvals ?? [],
       tasks: data?.tasks ?? [],
       actions: data?.actions ?? [],
+      meetings,
+      replies,
     },
     today,
   );
-  const counts = inboxCounts(items);
-  const shown = filterInbox(items, filter).slice(0, 8);
+  const shown = items.slice(0, MAX_ROWS);
   return (
-    <Panel title="Tu bandeja">
-      <div role="group" aria-label="Filtrar bandeja" className="mb-3 flex flex-wrap gap-1">
-        {INBOX_FILTERS.map((f) => (
-          <Button
-            key={f.id}
-            size="sm"
-            variant={filter === f.id ? "default" : "outline"}
-            aria-pressed={filter === f.id}
-            onClick={() => setFilter(f.id)}
-          >
-            {f.label} · {counts[f.id]}
-          </Button>
-        ))}
+    <section aria-labelledby="today-title">
+      <div className="mb-2 flex items-baseline justify-between gap-3">
+        <h2 id="today-title" className="section-title">
+          Hoy
+        </h2>
+        {items.length > MAX_ROWS && (
+          <Link to="/inbox" className="py-2 text-xs text-signal md:py-0">
+            Ver las {items.length} →
+          </Link>
+        )}
       </div>
-      {shown.length === 0 && <p className="text-sm text-muted-foreground">Nada pendiente aquí.</p>}
-      <ul className="divide-y">
-        {shown.map((i) => {
-          const body = (
-            <>
-              <span className="min-w-0 break-words">{i.title}</span>
-              <span
-                className={`shrink-0 font-mono text-xs uppercase ${i.priority === 1 ? "text-signal" : "text-muted-foreground"}`}
-              >
-                {KIND_LABEL[i.kind]}
-              </span>
-            </>
-          );
-          const cls = "flex items-start justify-between gap-3 py-2.5 text-sm";
-          return (
+      {shown.length === 0 ? (
+        <p className="border-t border-hairline py-6 text-sm text-ink-mid">
+          Nada pendiente para hoy: ni reuniones, ni tareas, ni decisiones.
+        </p>
+      ) : (
+        <ul className="divide-y divide-hairline border-y border-hairline">
+          {shown.map((i) => (
             <li key={i.id}>
-              {i.href ? (
-                <Link to={i.href} className={`${cls} hover:text-signal`}>
-                  {body}
-                </Link>
-              ) : i.accountId ? (
-                <Link
-                  to="/accounts/$id"
-                  params={{ id: i.accountId }}
-                  className={`${cls} hover:text-signal`}
-                >
-                  {body}
-                </Link>
-              ) : (
-                <div className={cls}>{body}</div>
-              )}
+              <Row item={i} />
             </li>
-          );
-        })}
-      </ul>
-    </Panel>
+          ))}
+        </ul>
+      )}
+    </section>
   );
+}
+
+function meta(i: InboxItem) {
+  if (i.kind === "reunion" && i.at)
+    return `${KIND_LABEL.reunion} · ${new Date(i.at).toLocaleTimeString("es-ES", { timeStyle: "short" })}`;
+  if (i.kind === "tarea" && i.priority === 1) return "Tarea · vence hoy";
+  return KIND_LABEL[i.kind];
+}
+
+function Row({ item: i }: { item: InboxItem }) {
+  const body = (
+    <>
+      <span aria-hidden className={`size-2 shrink-0 rounded-full ${DOT[i.kind]}`} />
+      <span className="min-w-0 flex-1 truncate">{i.title}</span>
+      <span
+        className={`shrink-0 text-xs ${i.priority === 1 && i.kind !== "reunion" ? "text-signal" : "text-ink-mid"}`}
+      >
+        {meta(i)}
+      </span>
+    </>
+  );
+  const cls = "flex min-h-10 items-center gap-3 px-1 py-2 text-sm";
+  if (i.href)
+    return (
+      <Link to={i.href} className={`${cls} hover:bg-paper-sunk`}>
+        {body}
+      </Link>
+    );
+  if (i.accountId)
+    return (
+      <Link
+        to="/accounts/$id"
+        params={{ id: i.accountId }}
+        className={`${cls} hover:bg-paper-sunk`}
+      >
+        {body}
+      </Link>
+    );
+  return <div className={cls}>{body}</div>;
 }

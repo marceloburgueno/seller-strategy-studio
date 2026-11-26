@@ -8,7 +8,7 @@ import { useSetupGuide } from "@/hooks/use-setup-guide";
 import { usePrimaryLine } from "@/hooks/use-business-lines";
 import { GuideOffer, NextStepMessage } from "@/components/setup/guide";
 
-/** One compact strategy card in Inicio (Owner / Sales Leader) until the strategy is complete or hidden. */
+/** The «Ahora» card in Inicio (Owner / Sales Leader) while the strategy is incomplete and not hidden. */
 export function RoadmapCard() {
   const { data: session, save } = useOnboarding();
   const { data: st } = useSetup();
@@ -20,9 +20,9 @@ export function RoadmapCard() {
   // The archetype comes only from the primary business line (business_lines), never the old per-person diagnosis.
   const diag = primary ? { result: primary.result } : null;
   return (
-    <section className="mb-8 rounded-xl border bg-card p-5 shadow-xs">
+    <section className="rounded-2xl border bg-card p-6 shadow-xs">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <p className="eyebrow">Tu estrategia · {pct} %</p>
+        <p className="eyebrow">Ahora · Tu estrategia · {pct} %</p>
         <button
           className="text-xs text-ink-mid hover:text-ink"
           onClick={() => save({ completed_at: new Date().toISOString() })}
