@@ -1,6 +1,4 @@
-import { Cable, Menu, Spline, X, type LucideIcon } from "lucide-react";
-// NK-0168: one icon per concept, always with its label.
-const NAV_ICONS: Record<string, LucideIcon> = { "/theory-u": Spline, "/connect": Cable };
+import { ChevronDown, ChevronRight, Menu, X } from "lucide-react";
 import { IconText } from "@/components/icon-text";
 import { useEffect, useRef, useState } from "react";
 import { BackgroundJobsWatcher } from "@/components/background";
@@ -22,7 +20,15 @@ import { SessionUnverified } from "@/components/session-unverified";
 import { useMe } from "@/hooks/use-me";
 import { ROLES, type Role } from "@/lib/roles";
 import { canUseAdvisor } from "@/lib/advisor";
-import { NAV, NAV_GROUPS, groupOpen, isActive, visibleItems } from "@/lib/nav";
+import {
+  AGENT_ICON,
+  NAV,
+  NAV_GROUPS,
+  NAV_ICONS,
+  groupOpen,
+  isActive,
+  visibleItems,
+} from "@/lib/nav";
 import { CommandPalette, useCommandPalette } from "@/components/command-palette";
 import { OrgSwitcher } from "@/components/org-switcher";
 import { OrgOnboarding } from "@/components/org-onboarding";
@@ -33,10 +39,18 @@ import { useSuggestions } from "@/components/suggestions";
 import { useLivePipeline } from "@/hooks/use-live-pipeline";
 import { Isotipo, Lockup } from "@/components/brand";
 import { AppPending } from "@/components/app-pending";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { useTheme } from "@/components/theme-toggle";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useNavAdvanced } from "@/hooks/use-nav-advanced";
 
 export const Route = createFileRoute("/_authenticated")({
@@ -78,6 +92,7 @@ function Shell() {
   const [openGroups, setOpenGroups] = useOpenGroups();
   const leader = canUseAdvisor(me?.roles ?? []);
   const [advanced, setAdvanced] = useNavAdvanced(me?.user.id);
+  const { data: sugg = [] } = useSuggestions();
 
   // Close the mobile menu whenever the route changes (links, back button, redirects).
   useEffect(() => setNavOpen(false), [path]);
@@ -96,19 +111,13 @@ function Shell() {
   };
 
   // Same sidebar content on desktop (fixed column) and on mobile (drawer under the top bar).
+  const linkClass =
+    "my-0.5 flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-base text-ink-mid transition-colors hover:bg-paper-sunk hover:text-ink data-[status=active]:bg-lime-soft data-[status=active]:font-semibold data-[status=active]:text-ink md:min-h-0 md:py-1.5 md:text-sm";
   const sidebar = (mobile: boolean) => (
     <>
       {!mobile && (
-        <div className="flex items-center justify-between gap-2 py-5 pl-5 pr-3 pt-6">
+        <div className="px-5 pb-4 pt-6">
           <Lockup />
-          <button
-            onClick={() => setCollapsed(true)}
-            aria-label="Cerrar menú"
-            title="Cerrar menú"
-            className="shrink-0 text-xs text-ink-mid hover:text-ink"
-          >
-            ‹ Plegar
-          </button>
         </div>
       )}
       {me && hasOrg && (
@@ -125,64 +134,58 @@ function Shell() {
             const items = visibleItems(g, leader, advanced);
             const open = groupOpen({ ...g, items }, path, openGroups[g.key]);
             return (
-              <div key={g.key} className="mb-2">
+              <div key={g.key} className={g.collapsible ? "mt-3" : ""}>
                 {g.collapsible && (
-                  <Button
-                    variant="ghost"
+                  <button
+                    type="button"
                     onClick={() => setOpenGroups({ ...openGroups, [g.key]: !open })}
                     aria-expanded={open}
-                    className="flex w-full items-center justify-between rounded-md px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-ink-faint hover:text-ink"
+                    className="flex min-h-11 w-full items-center rounded-md px-3 text-xs font-medium text-ink-faint hover:text-ink md:min-h-8"
                   >
-                    {g.title} <span aria-hidden>{open ? "−" : "+"}</span>
-                  </Button>
-                )}
-                {!g.collapsible && (
-                  <p className="px-3 pb-1 pt-3 text-xs font-semibold uppercase text-ink-faint">
-                    {g.title}
-                  </p>
-                )}
-                {g.key === "measure" && (
-                  <label className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground">
-                    Modo avanzado
-                    <Switch
-                      checked={advanced}
-                      onCheckedChange={setAdvanced}
-                      aria-label="Modo avanzado"
-                    />
-                  </label>
+                    <IconText icon={open ? ChevronDown : ChevronRight}>{g.title}</IconText>
+                  </button>
                 )}
                 {open &&
-                  items.map((n) => (
-                    <Link
-                      key={n.to}
-                      to={n.to as never}
-                      className="my-0.5 flex items-center rounded-lg px-3 py-2.5 text-base text-ink-mid transition-colors hover:bg-paper-sunk hover:text-ink data-[status=active]:bg-lime-soft data-[status=active]:font-semibold data-[status=active]:text-ink md:py-1.5 md:text-sm"
-                    >
-                      {NAV_ICONS[n.to] ? (
-                        <IconText icon={NAV_ICONS[n.to]} size="nav">
-                          {n.label}
-                        </IconText>
-                      ) : (
-                        n.label
-                      )}
-                    </Link>
-                  ))}
+                  items.map((n) => {
+                    const icon = NAV_ICONS[n.to];
+                    const badge = n.to === "/inbox" ? sugg.length : 0;
+                    return (
+                      <Link
+                        key={n.to}
+                        to={n.to as never}
+                        className={`${linkClass} ${g.collapsible ? "pl-[2.125rem]" : ""}`}
+                      >
+                        {icon ? (
+                          <IconText icon={icon} size="nav">
+                            {n.label}
+                          </IconText>
+                        ) : (
+                          n.label
+                        )}
+                        {badge > 0 && (
+                          <span
+                            className="ml-auto rounded-full bg-paper-sunk px-1.5 font-mono text-xs tabular-nums text-ink"
+                            aria-label={`${badge} sugerencias pendientes`}
+                          >
+                            {badge > 99 ? "99+" : badge}
+                          </span>
+                        )}
+                      </Link>
+                    );
+                  })}
               </div>
             );
           })}
       </nav>
-      {hasOrg && <SetupMeter />}
-      <div className="border-t border-hairline p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] text-sm md:pb-4">
-        <p className="truncate font-medium">{me?.profile?.full_name}</p>
-        <p className="eyebrow mt-1 truncate">{role ? ROLES[role]?.label : ""}</p>
-        <button
-          onClick={signOut}
-          className="-my-2 mt-1 py-2 text-xs text-ink underline decoration-hairline-firm underline-offset-4 hover:decoration-ink"
-        >
-          Cerrar sesión
-        </button>
-        <ThemeToggle className="mt-3 border-t border-hairline pt-3 md:pt-2" />
-      </div>
+      {hasOrg && <SetupPill />}
+      <UserMenu
+        name={me?.profile?.full_name ?? ""}
+        role={role ? (ROLES[role]?.label ?? "") : ""}
+        advanced={advanced}
+        onAdvanced={setAdvanced}
+        onCollapse={mobile ? undefined : () => setCollapsed(true)}
+        onSignOut={signOut}
+      />
     </>
   );
 
@@ -257,7 +260,6 @@ function Shell() {
             >
               ›
             </button>
-            <ThemeToggle compact className="mt-auto" />
           </aside>
         ) : (
           <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-hairline bg-sidebar text-sidebar-foreground md:flex">
@@ -373,18 +375,19 @@ function useCollapsedSidebar() {
   return [collapsed, setCollapsed] as const;
 }
 
-/** Mobile bottom bar: the four places used most plus the agent, one thumb away. */
+/** Mobile bottom bar: the four places used most plus the agent, one thumb away (icon over label, 60 px tall). */
 function BottomBar() {
   const { open } = useAgent();
   const { data: sugg = [] } = useSuggestions();
   const tabs = [
-    { to: "/home", label: "Inicio" },
-    { to: "/inbox", label: "Sugerencias", badge: sugg.length },
-    { to: "/leads", label: "Leads" },
-    { to: "/deals", label: "Pipeline" },
+    { to: "/home", label: "Inicio", badge: 0 },
+    { to: "/inbox", label: "Bandeja", badge: sugg.length },
+    { to: "/leads", label: "Leads", badge: 0 },
+    { to: "/deals", label: "Pipeline", badge: 0 },
   ] as const;
   const item =
-    "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 pt-1.5 text-xs leading-tight text-ink-mid";
+    "flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center border-t-2 border-transparent text-xs leading-tight text-ink-mid";
+  const stack = "max-w-full flex-col [&>span]:max-w-full [&>span]:truncate";
   return (
     <nav
       aria-label="Accesos rápidos"
@@ -394,62 +397,111 @@ function BottomBar() {
         <Link
           key={t.to}
           to={t.to}
-          className={`${item} border-t-2 border-transparent data-[status=active]:border-ink data-[status=active]:font-semibold data-[status=active]:text-ink`}
+          className={`${item} relative data-[status=active]:border-ink data-[status=active]:font-semibold data-[status=active]:text-ink`}
         >
-          <span className="relative truncate">
+          <IconText icon={NAV_ICONS[t.to]} size="nav" className={stack}>
             {t.label}
-            {"badge" in t && t.badge > 0 && (
-              <span className="ml-1 tabular-nums text-signal" aria-label={`${t.badge} pendientes`}>
-                {t.badge > 9 ? "9+" : t.badge}
-              </span>
-            )}
-          </span>
+          </IconText>
+          {t.badge > 0 && (
+            <span
+              className="absolute left-1/2 top-1 ml-2 rounded-full bg-signal px-1 text-xs font-semibold tabular-nums leading-4 text-ink-reverse"
+              aria-label={`${t.badge} pendientes`}
+            >
+              {t.badge > 9 ? "9+" : t.badge}
+            </span>
+          )}
         </Link>
       ))}
-      <button
-        onClick={() => open()}
-        className={`${item} border-t-2 border-transparent`}
-        aria-label="Abrir agente GTM"
-      >
-        <span>Agente</span>
+      <button onClick={() => open()} className={item} aria-label="Abrir agente GTM">
+        <IconText icon={AGENT_ICON} size="nav" className={stack}>
+          Agente
+        </IconText>
       </button>
     </nav>
   );
 }
 
-function SetupMeter() {
+/** Discreet setup state under the menu: «Configuración X/Y» until every milestone is done, then nothing. */
+function SetupPill() {
   const { data } = useSetup();
   const { nextStep } = useSetupGuide();
-  const { data: sugg = [] } = useSuggestions();
-  const pct = data?.status.pct;
+  const items = data?.status.items;
+  if (!items?.length) return null;
+  const done = items.filter((i) => i.done).length;
+  if (done >= items.length) return null;
+  const next = nextStep?.label.split(" (")[0];
   return (
-    <div className="space-y-2 px-3 pb-3">
-      {pct != null && pct < 100 && (
-        <Link
-          to="/setup"
-          className="block border-t border-hairline px-3 pt-3 text-xs hover:text-ink"
-        >
-          <div className="flex justify-between">
-            <span>Estrategia completada</span>
-            <span className="font-mono font-semibold">{pct}%</span>
-          </div>
-          <div className="mt-1.5 h-0.5 bg-hairline">
-            <div className="h-full bg-ink" style={{ width: `${pct}%` }} />
-          </div>
-          {nextStep && (
-            <p className="mt-1.5 text-ink-mid">Siguiente: {nextStep.label.split(" (")[0]}</p>
+    <div className="px-3 pb-3">
+      <Link
+        to="/setup"
+        title={next ? `Siguiente: ${next}` : undefined}
+        className="flex min-h-11 items-center justify-between gap-2 rounded-full border border-hairline px-3 text-xs text-ink-mid hover:border-hairline-firm hover:text-ink md:min-h-8"
+      >
+        <span>Configuración</span>
+        <span className="font-mono font-semibold tabular-nums text-ink">
+          {done}/{items.length}
+        </span>
+      </Link>
+    </div>
+  );
+}
+
+/** Sidebar footer: who you are, and the personal preferences (advanced links, theme, fold) behind one menu. */
+function UserMenu({
+  name,
+  role,
+  advanced,
+  onAdvanced,
+  onCollapse,
+  onSignOut,
+}: {
+  name: string;
+  role: string;
+  advanced: boolean;
+  onAdvanced: (v: boolean) => void;
+  onCollapse: (() => void) | undefined;
+  onSignOut: () => void;
+}) {
+  const { theme, setTheme } = useTheme();
+  return (
+    <div className="border-t border-hairline p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] md:pb-2">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="flex min-h-11 w-full min-w-0 flex-col items-start justify-center rounded-lg px-3 py-1.5 text-left text-sm hover:bg-paper-sunk"
+          >
+            <span className="w-full truncate font-medium">{name || "Tu cuenta"}</span>
+            {role && <span className="eyebrow w-full truncate">{role}</span>}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="top" align="start" className="w-56">
+          <DropdownMenuLabel className="truncate">{name || "Tu cuenta"}</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuCheckboxItem
+            checked={advanced}
+            onCheckedChange={(v) => onAdvanced(v === true)}
+            onSelect={(e) => e.preventDefault()}
+          >
+            Modo avanzado
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={theme === "dark"}
+            onCheckedChange={(v) => setTheme(v === true ? "dark" : "light")}
+            onSelect={(e) => e.preventDefault()}
+          >
+            Modo oscuro
+          </DropdownMenuCheckboxItem>
+          {onCollapse && (
+            <DropdownMenuItem onSelect={onCollapse}>
+              Plegar menú
+              <DropdownMenuShortcut>⌘B</DropdownMenuShortcut>
+            </DropdownMenuItem>
           )}
-        </Link>
-      )}
-      {sugg.length > 0 && (
-        <Link
-          to="/inbox"
-          className="flex justify-between px-3 py-1.5 text-xs text-ink-mid hover:text-ink"
-        >
-          <span>Sugerencias pendientes</span>
-          <span className="font-mono">{sugg.length}</span>
-        </Link>
-      )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={onSignOut}>Cerrar sesión</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
