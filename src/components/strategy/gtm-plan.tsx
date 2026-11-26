@@ -1,0 +1,271 @@
+import { useEffect, useMemo, useState } from "react";
+import { Plus, RotateCcw } from "lucide-react";
+import { IconText } from "@/components/icon-text";
+import { Kpi, Panel } from "@/components/page";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { GtmGantt } from "@/components/strategy/gtm-gantt";
+import { GtmTaskSheet } from "@/components/strategy/gtm-task-sheet";
+import { useCurrency } from "@/hooks/use-me";
+import {
+  EMPTY_LOCAL_STATE,
+  EXAMPLE_PLAN,
+  NO_FILTERS,
+  OBJECTIVE_LABEL,
+  PLAN_STORAGE_KEY,
+  addDecision,
+  applyLocalState,
+  formatPlanDate,
+  kpiProgress,
+  parseLocalState,
+  planHeadline,
+  setTaskOverride,
+  statusCounts,
+  toggleSubtask,
+  weekOfYear,
+  type GtmPlan,
+  type ObjectiveStatus,
+  type PlanFilters,
+  type PlanKpi,
+  type PlanLocalState,
+} from "@/lib/gtm-plan";
+
+const OBJECTIVE_DOT: Record<ObjectiveStatus, string> = {
+  on_track: "bg-signal",
+  at_risk: "bg-state-alarm",
+  achieved: "bg-state-ok",
+};
+
+/** Local, per-browser state: read after mount (SSR-safe) and written on every change. */
+function usePlanLocalState(): [PlanLocalState, (f: (s: PlanLocalState) => PlanLocalState) => void] {
+  const [state, setState] = useState<PlanLocalState>(EMPTY_LOCAL_STATE);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    try {
+      setState(parseLocalState(window.localStorage.getItem(PLAN_STORAGE_KEY)));
+    } catch {
+      // Storage blocked: the plan still works for this visit.
+    }
+    setLoaded(true);
+  }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      window.localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(state));
+    } catch {
+      // Storage blocked or full: keep the in-memory state.
+    }
+  }, [state, loaded]);
+  return [state, (f) => setState((s) => f(s))];
+}
+
+function todayIso(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Strategy tab: wires the company currency into the plan view. */
+export function GtmPlanTab() {
+  const { money } = useCurrency();
+  return <GtmPlanView money={money} />;
+}
+
+export function GtmPlanView({
+  plan = EXAMPLE_PLAN,
+  money,
+  today = new Date(),
+}: {
+  plan?: GtmPlan;
+  money: (n: number, compact?: boolean) => string;
+  today?: Date;
+}) {
+  const [local, update] = usePlanLocalState();
+  const [filters, setFilters] = useState<PlanFilters>(NO_FILTERS);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const view = useMemo(() => applyLocalState(plan, local), [plan, local]);
+  const openTask = view.tasks.find((t) => t.id === openId) ?? null;
+  const todayWeek = today.getFullYear() === plan.year ? weekOfYear(today) : null;
+  const counts = statusCounts(view.tasks);
+  const hasLocalChanges = Object.keys(local.tasks).length > 0 || local.decisions.length > 0;
+
+  const formatKpi = (k: PlanKpi, n: number) =>
+    k.unit === "money" ? money(n, true) : k.unit === "percent" ? `${n} %` : n.toLocaleString("es");
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="eyebrow">
+            Plan GTM {plan.year} · {plan.company}
+          </p>
+          <h2 className="mt-1 font-display text-xl font-semibold text-balance">
+            {planHeadline(view.tasks)}
+          </h2>
+          <p className="text-meta mt-1">
+            Plan de ejemplo con datos ficticios. Tus cambios se guardan solo en este navegador.
+          </p>
+        </div>
+        {hasLocalChanges && (
+          <Button size="sm" variant="ghost" onClick={() => update(() => EMPTY_LOCAL_STATE)}>
+            <IconText icon={RotateCcw}>Restablecer ejemplo</IconText>
+          </Button>
+        )}
+      </div>
+
+      <section aria-labelledby="gtm-objectives" className="space-y-3">
+        <h3 id="gtm-objectives" className="section-title">
+          Objetivos del año
+        </h3>
+        <ul className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {plan.objectives.map((o) => (
+            <li key={o.id} className="min-w-0 rounded-lg border bg-card p-4">
+              <span
+                className={`inline-flex items-center gap-1.5 text-xs font-medium ${o.status === "at_risk" ? "text-state-alarm" : "text-ink-mid"}`}
+              >
+                <span aria-hidden className={`size-2 rounded-full ${OBJECTIVE_DOT[o.status]}`} />
+                {OBJECTIVE_LABEL[o.status]}
+              </span>
+              <p className="mt-1.5 text-sm font-semibold">{o.title}</p>
+              <p className="mt-0.5 text-meta">{o.detail}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section aria-labelledby="gtm-kpis" className="space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 id="gtm-kpis" className="section-title">
+            KPIs del plan
+          </h3>
+          <p className="text-meta">
+            {counts.done} hechas · {counts.in_progress} en curso · {counts.at_risk} en riesgo ·{" "}
+            {counts.pending} pendientes
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {plan.kpis.map((k) => {
+            const p = kpiProgress(k);
+            return (
+              <Kpi
+                key={k.id}
+                size="compact"
+                label={k.label}
+                value={formatKpi(k, k.actual)}
+                tone={p.onTrack ? undefined : "alarm"}
+                hint={`Meta ${formatKpi(k, k.target)} · ${p.onTrack ? "en camino" : "por debajo"}`}
+                hintTone={p.onTrack ? undefined : "alarm"}
+              />
+            );
+          })}
+        </div>
+      </section>
+
+      <Decisions
+        decisions={view.decisions}
+        onAdd={(input) => update((s) => addDecision(s, input, `local-${Date.now()}`))}
+      />
+
+      <GtmGantt
+        tasks={view.tasks}
+        filters={filters}
+        onFiltersChange={setFilters}
+        onOpenTask={setOpenId}
+        todayWeek={todayWeek}
+      />
+
+      <GtmTaskSheet
+        task={openTask}
+        tasks={view.tasks}
+        onClose={() => setOpenId(null)}
+        onOpenTask={setOpenId}
+        onStatusChange={(id, status) => update((s) => setTaskOverride(s, id, { status }))}
+        onToggleSubtask={(task, subId) => update((s) => toggleSubtask(s, task, subId))}
+        onSaveNote={(id, note) => update((s) => setTaskOverride(s, id, { note }))}
+      />
+    </div>
+  );
+}
+
+function Decisions({
+  decisions,
+  onAdd,
+}: {
+  decisions: GtmPlan["decisions"];
+  onAdd: (input: { title: string; validatedBy: string; date: string }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [by, setBy] = useState("Owner");
+  const [date, setDate] = useState(todayIso);
+  const valid = title.trim() !== "" && by.trim() !== "" && date !== "";
+
+  return (
+    <Panel
+      title="Decisiones clave"
+      action={
+        !open && (
+          <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+            <IconText icon={Plus}>Registrar decisión</IconText>
+          </Button>
+        )
+      }
+    >
+      {open && (
+        <form
+          className="mb-4 grid grid-cols-1 gap-3 rounded-md border border-hairline p-3 sm:grid-cols-[minmax(0,1fr)_160px_160px]"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!valid) return;
+            onAdd({ title, validatedBy: by, date });
+            setTitle("");
+            setOpen(false);
+          }}
+        >
+          <div className="min-w-0 space-y-1">
+            <Label htmlFor="gtm-decision-title">Qué se aprobó</Label>
+            <Input
+              id="gtm-decision-title"
+              value={title}
+              autoFocus
+              placeholder="Ej.: Priorizar fintech en el segundo semestre"
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </div>
+          <div className="min-w-0 space-y-1">
+            <Label htmlFor="gtm-decision-by">Quién lo validó</Label>
+            <Input id="gtm-decision-by" value={by} onChange={(e) => setBy(e.target.value)} />
+          </div>
+          <div className="min-w-0 space-y-1">
+            <Label htmlFor="gtm-decision-date">Fecha</Label>
+            <Input
+              id="gtm-decision-date"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-2 sm:col-span-3">
+            <Button type="submit" size="sm" disabled={!valid}>
+              Guardar decisión
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>
+              Cancelar
+            </Button>
+          </div>
+        </form>
+      )}
+      <ul className="divide-y divide-hairline">
+        {decisions.map((d) => (
+          <li key={d.id} className="flex flex-wrap items-baseline justify-between gap-x-4 py-2">
+            <span className="min-w-0 text-sm">{d.title}</span>
+            <span className="text-meta">
+              {formatPlanDate(d.date)} · validó {d.validatedBy}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  );
+}

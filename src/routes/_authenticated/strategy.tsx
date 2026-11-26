@@ -6,6 +6,7 @@ import { IcpEditor } from "@/components/icp-editor";
 import { BudgetQuarters } from "@/components/budget-quarters";
 import { PaybackQuarters } from "@/components/payback-quarters";
 import { Motions } from "@/components/strategy/motions";
+import { GtmPlanTab } from "@/components/strategy/gtm-plan";
 import { FunnelDiagnosisPanel } from "@/components/strategy/funnel-diagnosis";
 import { Pillars, Positioning } from "@/components/strategy/positioning";
 import { StrategyReviewPanel } from "@/components/strategy-review";
@@ -14,6 +15,7 @@ import { HubScreen } from "@/components/hub/hub-screen";
 import { RULES_SECTIONS } from "@/lib/legacy-redirects";
 
 const STRATEGY_TABS = [
+  "plan",
   "motions",
   "diagnosis",
   "payback",
@@ -50,7 +52,10 @@ export const Route = createFileRoute("/_authenticated/strategy")({
   head: () => ({
     meta: [
       { title: "Estrategia GTM — Nokko" },
-      { name: "description", content: "Modelos de venta por segmento, ICP y posicionamiento." },
+      {
+        name: "description",
+        content: "Plan GTM, modelos de venta por segmento, ICP y posicionamiento.",
+      },
       { property: "og:title", content: "Estrategia GTM — Nokko" },
       {
         property: "og:description",
@@ -69,12 +74,13 @@ function Strategy() {
       <PrimaryLineNote className="mb-6" />
       {/* Controlled by ?tab= so the embedded «Reglas y voz» can keep its own ?seccion= in the same URL. */}
       <Tabs
-        value={tab ?? "motions"}
+        value={tab ?? "plan"}
         onValueChange={(v) =>
           navigate({ search: { tab: v as (typeof STRATEGY_TABS)[number] }, replace: true })
         }
       >
         <TabsList className="mb-6">
+          <TabsTrigger value="plan">Plan GTM</TabsTrigger>
           <TabsTrigger value="motions">Modelos de venta por segmento</TabsTrigger>
           <TabsTrigger value="diagnosis">Diagnóstico AARRR</TabsTrigger>
           <TabsTrigger value="payback">Payback real</TabsTrigger>
@@ -85,6 +91,9 @@ function Strategy() {
           <TabsTrigger value="review">Revisión con IA</TabsTrigger>
           <TabsTrigger value="rules">Reglas y voz</TabsTrigger>
         </TabsList>
+        <TabsContent value="plan">
+          <GtmPlanTab />
+        </TabsContent>
         <TabsContent value="motions">
           <Motions />
         </TabsContent>
