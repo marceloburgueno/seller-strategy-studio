@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { causalChain, genericPhrases, signalLine } from "@/lib/daily-queue";
 import {
+  DEMO_EXCLUDED_DOMAINS,
   DEMO_ORG_ID,
   DEMO_ORG_NAME,
   DEMO_USER_ID,
@@ -61,6 +63,37 @@ describe("demo dataset", () => {
     // Every deal points to an existing account.
     const ids = new Set(db.accounts!.map((a) => a.id));
     expect(db.deals!.every((d) => ids.has(d.account_id))).toBe(true);
+  });
+});
+
+describe("demo V2 causal chain", () => {
+  const db = buildDemoData(new Date("2026-11-26T08:00:00Z"));
+
+  it("every suggestion carries tier, hypothesis, exact signal, a human draft and the reason", () => {
+    for (const s of db.suggestions!) {
+      const c = causalChain(s);
+      expect(c?.tier === "Tier 1 · ABM" || c?.tier === "Tier 2").toBe(true);
+      expect(c?.hypothesis).toBeTruthy();
+      expect(signalLine(c!)?.split(" · ")).toHaveLength(3);
+      expect(c?.pedagogyReason).toBeTruthy();
+      expect(c?.draftMessage?.length).toBeLessThan(450);
+      expect(genericPhrases(c!.draftMessage!)).toEqual([]);
+    }
+    expect(db.suggestions!.some((s) => s.tier === "Tier 1 · ABM")).toBe(true);
+    expect(db.suggestions!.some((s) => s.tier === "Tier 2")).toBe(true);
+  });
+
+  it("accounts and deals carry the tier and hypothesis without touching the A/B/C tier column", () => {
+    expect(db.accounts!.every((a) => ["A", "B", "C"].includes(String(a.tier)))).toBe(true);
+    expect(db.accounts!.every((a) => a.gtmTier && a.hypothesis)).toBe(true);
+    expect(db.deals!.every((d) => d.tier && d.hypothesis)).toBe(true);
+  });
+
+  it("excludes 14 domains: customers and investors", () => {
+    expect(DEMO_EXCLUDED_DOMAINS).toHaveLength(14);
+    expect(new Set(DEMO_EXCLUDED_DOMAINS.map((d) => d.reason))).toEqual(
+      new Set(["cliente", "inversor"]),
+    );
   });
 });
 

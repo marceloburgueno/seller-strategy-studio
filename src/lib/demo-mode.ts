@@ -189,6 +189,11 @@ export function buildDemoData(now: Date = new Date()): Dataset {
     ["Quanta RRHH", "quanta-rrhh.example", "Software", "green", 2],
     ["Vela Retail", "vela-retail.example", "Retail", "red", 2],
   ];
+  const HYPOTHESIS = [
+    "El SaaS mid-market cierra antes con un plan de concesiones pactado",
+    "En fintech, finanzas decide si un técnico defiende el caso",
+    "Las pymes de servicios compran solas, sin demo comercial",
+  ];
   const accounts: Row[] = accountSeeds.map(([name, domain, industry, health, seg], i) => ({
     ...base,
     id: id("acc", i + 1),
@@ -209,6 +214,9 @@ export function buildDemoData(now: Date = new Date()): Dataset {
     auto_researched_at: null,
     signals_checked_at: null,
     last_human_edit_at: null,
+    // V2: the real «tier» column holds A/B/C, so the GTM tier label lives in gtmTier.
+    gtmTier: [0, 1, 2, 5].includes(i) ? "Tier 1 · ABM" : "Tier 2",
+    hypothesis: HYPOTHESIS[seg]!,
   }));
 
   const dealSeeds: [string, number, string, number, number, string, number][] = [
@@ -253,6 +261,8 @@ export function buildDemoData(now: Date = new Date()): Dataset {
       last_human_edit_at: null,
       one_off_amount: null,
       partner_id: null,
+      tier: accounts[acc]!.gtmTier,
+      hypothesis: accounts[acc]!.hypothesis,
     }),
   );
 
@@ -325,27 +335,71 @@ export function buildDemoData(now: Date = new Date()): Dataset {
     source: "demo",
   }));
 
-  const suggestionSeeds: [string, string, number, string, string][] = [
+  // V2 causal chain: every demo suggestion says which tier and hypothesis it validates, the exact signal with its
+  // source and age, a short human draft and the commercial reason for this angle now (src/lib/daily-queue.ts).
+  type Causal = {
+    tier: "Tier 1 · ABM" | "Tier 2";
+    hypothesis: string;
+    signal: string;
+    signalSource: string;
+    signalAge: string;
+    draftMessage: string;
+    pedagogyReason: string;
+  };
+  const suggestionSeeds: [string, string, number, string, string, Causal][] = [
     [
       "Cobalto lleva 2 retrasos de cierre",
       "La renovación de Cobalto Logística cierra en 9 días con salud roja. Agenda una llamada con el COO antes de la demo.",
       1,
-      "/deals",
+      `/deals?deal=${deals[2]!.id}`,
       "deal_slipping",
+      {
+        tier: "Tier 1 · ABM",
+        hypothesis: "Las logísticas renuevan cuando operaciones ve el ahorro en horas",
+        signal: "Nuevo director de operaciones",
+        signalSource: "LinkedIn",
+        signalAge: "hace 2 días",
+        draftMessage:
+          "Hola Diego:\n\nVi que se incorporó un nuevo director de operaciones. Antes de la demo del jueves me gustaría enseñarle en 15 minutos cuántas horas de planificación os ahorró el piloto.\n\n¿Te va bien el martes a las 10?\n\nLaura",
+        pedagogyReason:
+          "Un cambio en operaciones reabre la renovación: llega antes que la competencia con datos del piloto, no con una propuesta nueva.",
+      },
     ],
     [
       "Faro Energía no tiene champion identificado",
       "Una propuesta de 96.000 € sin champion suele alargar el ciclo. Mapea stakeholders antes de la revisión.",
       1,
-      "/accounts",
+      `/deals?deal=${deals[5]!.id}`,
       "missing_champion",
+      {
+        tier: "Tier 1 · ABM",
+        hypothesis: "En energía, finanzas decide si un técnico defiende el caso",
+        signal: "Publicaron una vacante de Head of RevOps",
+        signalSource: "Web de empleo de Faro",
+        signalAge: "hace 5 días",
+        draftMessage:
+          "Hola Clara:\n\nEstáis buscando Head of RevOps, así que imagino que el forecast es tema estos meses. Te comparto en una página cómo lo resolvimos con Atlas Seguros, con números.\n\n¿Lo vemos 20 minutos antes de la revisión de la propuesta?\n\nLaura",
+        pedagogyReason:
+          "Una vacante de RevOps indica dolor con el forecast: quien la contrata es tu champion natural.",
+      },
     ],
     [
       "Prepara la negociación con Lumen",
       "La reunión es hoy: revisa MEDDPICC y el plan de concesiones.",
       2,
-      "/deals",
+      `/deals?deal=${deals[0]!.id}`,
       "meeting_prep",
+      {
+        tier: "Tier 1 · ABM",
+        hypothesis: "El SaaS mid-market cierra antes con un plan de concesiones pactado",
+        signal: "Marta Ríos pidió el descuento por escrito",
+        signalSource: "Correo",
+        signalAge: "hace 1 día",
+        draftMessage:
+          "Hola Marta:\n\nPara la reunión de hoy te propongo dos opciones: plan anual con el 8 % o plan a dos años con el 12 %. Llevo el detalle impreso.\n\nNos vemos a las 15:00.\n\nLaura",
+        pedagogyReason:
+          "Pedir el descuento por escrito es señal de compra: ofrece dos opciones cerradas, nunca un número abierto.",
+      },
     ],
     [
       "3 cuentas objetivo sin actividad en 14 días",
@@ -353,6 +407,17 @@ export function buildDemoData(now: Date = new Date()): Dataset {
       2,
       "/accounts",
       "stale_accounts",
+      {
+        tier: "Tier 2",
+        hypothesis: "Las cuentas de segmento responden a un dato del sector, no a un seguimiento",
+        signal: "Informe sectorial de seguros publicado",
+        signalSource: "Prensa del sector",
+        signalAge: "hace 3 días",
+        draftMessage:
+          "Hola:\n\nSalió el informe anual del sector y hay un dato que os afecta: el 40 % de los equipos comerciales no fía de su forecast. Te paso el resumen en una página, por si sirve.\n\nLaura",
+        pedagogyReason:
+          "Tras 14 días de silencio, un dato útil reabre la conversación sin sonar a «¿pudiste ver mi correo?».",
+      },
     ],
     [
       "Revisa el ICP de Pymes de servicios",
@@ -360,26 +425,40 @@ export function buildDemoData(now: Date = new Date()): Dataset {
       3,
       "/strategy",
       "icp_review",
+      {
+        tier: "Tier 2",
+        hypothesis: "Las pymes de servicios compran solas, sin demo comercial",
+        signal: "Win rate del 18 % en los últimos 90 días",
+        signalSource: "Pipeline de Nokko",
+        signalAge: "hace 1 semana",
+        draftMessage:
+          "Hola:\n\nEstamos probando una forma más corta de empezar: 14 días sin llamada, con tus datos reales. ¿Te interesa que te active el acceso?\n\nLaura",
+        pedagogyReason:
+          "Si el win rate cae con demo, la hipótesis de autoservicio merece una prueba antes de cambiar el ICP.",
+      },
     ],
   ];
-  const suggestions: Row[] = suggestionSeeds.map(([title, body, priority, link, detector], i) => ({
-    id: id("sug", i + 1),
-    org_id: DEMO_ORG_ID,
-    user_id: null,
-    title,
-    body,
-    priority,
-    link,
-    detector,
-    dedupe_key: `demo-${detector}`,
-    action: null,
-    strategy: null,
-    status: "pending",
-    snoozed_until: null,
-    notified_at: null,
-    created_at: at(-i),
-    updated_at: at(-i),
-  }));
+  const suggestions: Row[] = suggestionSeeds.map(
+    ([title, body, priority, link, detector, causal], i) => ({
+      id: id("sug", i + 1),
+      org_id: DEMO_ORG_ID,
+      user_id: null,
+      title,
+      body,
+      priority,
+      link,
+      detector,
+      dedupe_key: `demo-${detector}`,
+      action: null,
+      strategy: null,
+      status: "pending",
+      snoozed_until: null,
+      notified_at: null,
+      created_at: at(-i),
+      updated_at: at(-i),
+      ...causal,
+    }),
+  );
 
   const approvals: Row[] = [
     ["Descuento del 12 % para Lumen", "discount"],
@@ -514,6 +593,31 @@ export function buildDemoData(now: Date = new Date()): Dataset {
     icp_profiles,
   };
 }
+
+/**
+ * Domains Nokko never writes to in the demo: current customers and investors. Inicio shows the count next to
+ * «Nada sale sin tu permiso»; outside the demo there is no list, so no number is shown.
+ */
+export const DEMO_EXCLUDED_DOMAINS: { domain: string; reason: "cliente" | "inversor" }[] = [
+  ...[
+    "quanta-rrhh.example",
+    "atlas-seguros.example",
+    "mercurio-retail.example",
+    "olivo-foods.example",
+    "tramo-legal.example",
+    "nube-clinicas.example",
+    "pino-logistica.example",
+    "sendero-viajes.example",
+    "kairos-edu.example",
+  ].map((domain) => ({ domain, reason: "cliente" as const })),
+  ...[
+    "seedcap.example",
+    "iberia-ventures.example",
+    "faro-angels.example",
+    "norte-capital.example",
+    "lanza-vc.example",
+  ].map((domain) => ({ domain, reason: "inversor" as const })),
+];
 
 let data: Dataset | null = null;
 

@@ -224,3 +224,59 @@ describe("inbox master-detail (md and up)", () => {
     expect(hoisted.openAgent).toHaveBeenCalled();
   });
 });
+
+describe("V2 causal chain, human draft and 1-click capture", () => {
+  const causal = (id: string) => ({
+    ...operational(id, 1),
+    tier: "Tier 1 · ABM",
+    hypothesis: "Las logísticas renuevan cuando operaciones ve el ahorro",
+    signal: "Nuevo director de operaciones",
+    signalSource: "LinkedIn",
+    signalAge: "hace 2 días",
+    draftMessage: "Hola Diego:\n\nVi que se incorporó un nuevo director de operaciones.\n\nLaura",
+    pedagogyReason: "Un cambio en operaciones reabre la renovación.",
+  });
+  beforeEach(() => globalThis.localStorage?.clear());
+
+  it("shows tier, hypothesis, exact signal with source and age, and the commercial reason", () => {
+    wrap(<SuggestionInbox items={[causal("a")] as unknown as Items} />);
+    const d = within(detail());
+    expect(d.getByText("Tier 1 · ABM")).toBeInTheDocument();
+    expect(d.getByText(/Las logísticas renuevan/)).toBeInTheDocument();
+    expect(
+      d.getByText("Nuevo director de operaciones · LinkedIn · hace 2 días"),
+    ).toBeInTheDocument();
+    expect(d.getByText(/Por qué este ángulo ahora/)).toBeInTheDocument();
+  });
+
+  it("an edited draft says it is learning; typing in it never triggers shortcuts", () => {
+    wrap(<SuggestionInbox items={[causal("a")] as unknown as Items} />);
+    const box = within(detail()).getByLabelText("Borrador") as HTMLTextAreaElement;
+    expect(box.value).toMatch(/^Hola Diego/);
+    expect(within(detail()).queryByText(/Editado · aprendiendo/)).toBeNull();
+    fireEvent.change(box, { target: { value: "Hola Diego, ¿qué tal? Te escribo corto." } });
+    fireEvent.keyDown(box, { key: "e" });
+    expect(hoisted.decide).not.toHaveBeenCalled();
+    expect(
+      within(detail()).getByText("Editado · aprendiendo tu estilo y registrando variante"),
+    ).toBeInTheDocument();
+  });
+
+  it("one chip records the outcome without a form and does not decide the suggestion", () => {
+    wrap(<SuggestionInbox items={[causal("a")] as unknown as Items} />);
+    const chip = within(detail()).getByRole("button", { name: "Reunión agendada" });
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute("aria-pressed", "true");
+    expect(within(detail()).getByText(/Guardado: Reunión agendada/)).toBeInTheDocument();
+    expect(hoisted.decide).not.toHaveBeenCalled();
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("a suggestion without causal fields shows none of it", () => {
+    wrap(<SuggestionInbox items={[operational("a")] as unknown as Items} />);
+    expect(within(detail()).queryByText(/Tier/)).toBeNull();
+    expect(within(detail()).queryByLabelText("Borrador")).toBeNull();
+    expect(within(detail()).queryByText(/Capturar resultado/)).toBeNull();
+  });
+});
