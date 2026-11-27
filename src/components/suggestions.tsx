@@ -23,7 +23,20 @@ import {
 } from "@/lib/strategy-suggestions";
 import { StrategyBadge, StrategyEvidence } from "@/components/strategy-evidence";
 import { ExecuteDialog, executeKind } from "@/components/strategy-execute";
-import { SuggestionDeck } from "@/components/suggestion-deck";
+import { CausalBadges, SuggestionDeck } from "@/components/suggestion-deck";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  OUTCOMES,
+  causalChain,
+  draftEdited,
+  readOutcomes,
+  readVariant,
+  saveOutcomes,
+  saveVariant,
+  signalLine,
+  toggleOutcome,
+  type OutcomeLog,
+} from "@/lib/daily-queue";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 const PRIO: Record<number, string> = { 1: "Urgente", 2: "Importante", 3: "Cuando puedas" };
@@ -523,6 +536,8 @@ function SuggestionDetail({
   const kind = executeKind(s);
   const hasAction = !!actionTool(s.action);
   const target = linkTarget(s.link);
+  const causal = causalChain(s);
+  const signal = causal ? signalLine(causal) : null;
   const primary = kind
     ? "Abrir y completar"
     : strategy
@@ -595,9 +610,22 @@ function SuggestionDetail({
         {where ? ` · ${where}` : ""}
         {hasAction && !strategy ? " · Nokko lo hace por ti" : ""}
       </p>
+      <CausalBadges c={causal} className="mt-2" />
       <h2 className="mt-2 break-words font-display text-2xl leading-tight">{s.title}</h2>
       <div className="mt-6 rounded-lg bg-paper-sunk/60 p-4">
         <h3 className="text-sm font-medium">Por qué ahora</h3>
+        {signal && (
+          <p className="mt-1 break-words text-sm">
+            <span className="text-ink-mid">Señal: </span>
+            <span className="font-medium">{signal}</span>
+          </p>
+        )}
+        {causal?.pedagogyReason && (
+          <p className="mt-1 break-words text-sm text-ink-mid">
+            <span className="font-medium text-ink">Por qué este ángulo ahora: </span>
+            {causal.pedagogyReason}
+          </p>
+        )}
         {s.body ? (
           <p className="mt-1 whitespace-pre-line break-words text-sm text-ink-mid">{s.body}</p>
         ) : (
@@ -627,6 +655,8 @@ function SuggestionDetail({
           </Link>
         )}
       </div>
+      {causal?.draftMessage && <DraftBox key={s.id} id={s.id} draft={causal.draftMessage} />}
+      {causal && <OutcomeCapture key={`o-${s.id}`} id={s.id} />}
       {strategy && (
         <Input
           className="mt-4"
@@ -666,5 +696,93 @@ function SuggestionDetail({
       </div>
       {kind && form && <ExecuteDialog s={s} open={form} onOpenChange={setForm} reason={reason} />}
     </section>
+  );
+}
+
+/**
+ * V2: the short human draft, editable in place. Nothing is sent from here («Nada sale sin tu permiso»); an edit is
+ * kept as a local variant so the style can be learned, and says so discreetly.
+ */
+function DraftBox({ id, draft }: { id: string; draft: string }) {
+  const { data: me } = useMe();
+  const orgId = me?.currentOrg?.org_id;
+  const [value, setValue] = useState(draft);
+  // The saved variant is read after hydration, so server and client render the same first frame.
+  useEffect(() => {
+    if (!orgId) return;
+    const saved = readVariant(orgId, id);
+    if (saved) setValue(saved);
+  }, [orgId, id]);
+  const edited = draftEdited(draft, value);
+  return (
+    <div className="mt-5">
+      <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
+        <label htmlFor={`draft-${id}`} className="text-sm font-medium">
+          Borrador
+        </label>
+        <span className="text-xs text-ink-mid" aria-live="polite">
+          {edited
+            ? "Editado · aprendiendo tu estilo y registrando variante"
+            : "Nada sale sin tu permiso"}
+        </span>
+      </div>
+      <Textarea
+        id={`draft-${id}`}
+        value={value}
+        rows={7}
+        maxLength={4000}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => {
+          if (orgId && edited) saveVariant(orgId, id, value);
+        }}
+        className="min-h-40 text-sm"
+      />
+    </div>
+  );
+}
+
+/** V2: «Capturar resultado (1 clic)». A chip records the outcome in local memory; the same chip again clears it. */
+function OutcomeCapture({ id }: { id: string }) {
+  const { data: me } = useMe();
+  const orgId = me?.currentOrg?.org_id;
+  const [log, setLog] = useState<OutcomeLog>({});
+  useEffect(() => {
+    if (orgId) setLog(readOutcomes(orgId));
+  }, [orgId]);
+  const current = log[id]?.outcome;
+  function pick(outcome: (typeof OUTCOMES)[number]["id"]) {
+    if (!orgId) return;
+    const edited = readVariant(orgId, id) !== null;
+    const next = toggleOutcome(readOutcomes(orgId), id, outcome, edited);
+    saveOutcomes(orgId, next);
+    setLog(next);
+  }
+  return (
+    <div className="mt-5" role="group" aria-labelledby={`capture-${id}`}>
+      <p id={`capture-${id}`} className="text-sm font-medium">
+        Capturar resultado <span className="font-normal text-ink-mid">(1 clic)</span>
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {OUTCOMES.map((o) => {
+          const on = current === o.id;
+          return (
+            <button
+              key={o.id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => pick(o.id)}
+              className={`min-h-9 rounded-full border px-3 text-sm ${on ? "border-ink bg-ink text-ink-reverse" : "border-hairline text-ink-mid hover:text-ink"}`}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-1.5 text-xs text-ink-mid" aria-live="polite">
+        {current
+          ? `Guardado: ${OUTCOMES.find((o) => o.id === current)?.label}. Solo en este dispositivo.`
+          : "Se guarda al momento, sin formularios."}
+      </p>
+    </div>
   );
 }

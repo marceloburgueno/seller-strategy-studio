@@ -15,6 +15,7 @@ import { errorText } from "@/lib/errors";
 import { limitStrategy, parseStrategy, strategyHeading } from "@/lib/strategy-suggestions";
 import { ExecuteDialog, executeKind } from "@/components/strategy-execute";
 import { StrategyBadge, StrategyEvidence } from "@/components/strategy-evidence";
+import { causalChain, signalLine, tierLabel, type CausalChain } from "@/lib/daily-queue";
 
 type S = NonNullable<ReturnType<typeof useSuggestions>["data"]>[number];
 const PRIO: Record<number, string> = { 1: "Urgente", 2: "Importante", 3: "Cuando puedas" };
@@ -101,6 +102,7 @@ function DeckFace({ s, onReason }: { s: S; onReason: (v: string) => void }) {
   const navigate = useNavigate();
   const hasAction = !!actionTool(s.action);
   const strategy = parseStrategy(s.strategy);
+  const causal = causalChain(s);
   function resolve() {
     const plan = resolvePlan(s);
     openAgent({
@@ -123,7 +125,11 @@ function DeckFace({ s, onReason }: { s: S; onReason: (v: string) => void }) {
         {hasAction ? " · Nokko lo hace por ti" : ""}
         {strategy ? ` · ${strategyHeading(strategy)}` : ""}
       </p>
+      <CausalBadges c={causal} className="mt-2" />
       <h3 className="mt-2 break-words font-display text-2xl leading-tight">{s.title}</h3>
+      {causal && signalLine(causal) && (
+        <p className="mt-2 break-words text-xs text-ink-mid">Señal: {signalLine(causal)}</p>
+      )}
       {s.body && (
         <p
           className={`mt-3 whitespace-pre-line break-words text-sm text-ink-mid ${open ? "max-h-64 overflow-y-auto" : "line-clamp-3"}`}
@@ -165,6 +171,25 @@ function DeckFace({ s, onReason }: { s: S; onReason: (v: string) => void }) {
           Resolver con el agente
         </button>
       </div>
+    </div>
+  );
+}
+
+/** V2 causal chain, discreet: the tier badge and the hypothesis this action validates. Nothing when absent. */
+export function CausalBadges({ c, className = "" }: { c: CausalChain | null; className?: string }) {
+  if (!c || (!c.tier && !c.hypothesis)) return null;
+  return (
+    <div className={`flex min-w-0 flex-wrap items-center gap-2 text-xs ${className}`}>
+      {c.tier && (
+        <span className="shrink-0 rounded-full border border-hairline px-2 py-0.5 font-medium text-ink">
+          {tierLabel(c.tier)}
+        </span>
+      )}
+      {c.hypothesis && (
+        <span className="min-w-0 break-words text-ink-mid">
+          <span className="font-medium text-ink">Hipótesis:</span> {c.hypothesis}
+        </span>
+      )}
     </div>
   );
 }
