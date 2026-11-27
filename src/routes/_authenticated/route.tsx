@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useNavAdvanced } from "@/hooks/use-nav-advanced";
 import { exitDemoMode, isDemoMode } from "@/lib/demo-mode";
+import { DemoTour, demoTourSeen, markDemoTourSeen } from "@/components/demo-tour";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -80,6 +81,13 @@ function Shell() {
   const navigate = useNavigate();
   // Ronda 3B: local demo mode (dev server only). Leaving it reloads /auth so no demo cache or patch survives.
   const demo = import.meta.env.DEV && isDemoMode();
+  const [tourOpen, setTourOpen] = useState(false);
+  useEffect(() => {
+    if (demo && !demoTourSeen()) {
+      markDemoTourSeen();
+      setTourOpen(true);
+    }
+  }, [demo]);
   function leaveDemo() {
     exitDemoMode();
     window.location.replace("/auth");
@@ -275,7 +283,7 @@ function Shell() {
           </aside>
         )}
         <main className="min-w-0 flex-1">
-          {demo && <DemoBanner onExit={leaveDemo} />}
+          {demo && <DemoBanner onExit={leaveDemo} onGuide={() => setTourOpen(true)} />}
           {hasOrg && <TopBar onSearch={() => setPaletteOpen(true)} userId={me?.user.id} />}
           {!me ? null : hasOrg ? (
             <Outlet key={me.currentOrg?.org_id} />
@@ -283,6 +291,7 @@ function Shell() {
             <OrgOnboarding memberships={me.memberships} archived={me.archived} />
           )}
         </main>
+        {demo && <DemoTour open={tourOpen} onClose={() => setTourOpen(false)} />}
         {hasOrg && <BottomBar />}
         {hasOrg && <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />}
       </div>
@@ -291,7 +300,7 @@ function Shell() {
 }
 
 /** Ronda 3B: reminds that the data is fictitious and nothing reaches Supabase; «Salir» ends the demo. */
-function DemoBanner({ onExit }: { onExit: () => void }) {
+function DemoBanner({ onExit, onGuide }: { onExit: () => void; onGuide: () => void }) {
   return (
     <div
       role="status"
@@ -301,13 +310,22 @@ function DemoBanner({ onExit }: { onExit: () => void }) {
         <strong className="font-semibold">Modo demo local</strong>
         <span className="hidden text-ink-mid sm:inline"> · datos ficticios, nada se guarda</span>
       </span>
-      <button
-        type="button"
-        onClick={onExit}
-        className="min-h-11 shrink-0 px-1 font-medium underline decoration-hairline-firm underline-offset-4"
-      >
-        Salir
-      </button>
+      <span className="flex shrink-0 items-center gap-3">
+        <button
+          type="button"
+          onClick={onGuide}
+          className="min-h-11 shrink-0 px-1 font-medium underline decoration-hairline-firm underline-offset-4"
+        >
+          Ver guía
+        </button>
+        <button
+          type="button"
+          onClick={onExit}
+          className="min-h-11 shrink-0 px-1 font-medium underline decoration-hairline-firm underline-offset-4"
+        >
+          Salir
+        </button>
+      </span>
     </div>
   );
 }
