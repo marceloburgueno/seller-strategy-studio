@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useCurrency, useMe } from "@/hooks/use-me";
@@ -14,6 +15,9 @@ import { ROLES, canDecideApprovals, type Role } from "@/lib/roles";
 import { homeHeadline } from "@/lib/headlines";
 import { homeScope } from "@/lib/today-inbox";
 import { homeQuery, settle } from "@/hooks/screen-queries";
+import { storageGet, storageSet } from "@/lib/safe-storage";
+import { DEMO_EXCLUDED_DOMAINS, isDemoMode } from "@/lib/demo-mode";
+import { TIME_BUDGETS, budgetKey, parseBudget, type TimeBudget } from "@/lib/daily-queue";
 
 export const Route = createFileRoute("/_authenticated/home")({
   head: () => ({
@@ -37,6 +41,20 @@ function HomePage() {
   const { data: onboarding } = useOnboarding();
   const { data: suggestions = [] } = useSuggestions();
   const { data } = useQuery(homeQuery);
+  const orgId = me?.currentOrg?.org_id;
+  const [budget, setBudget] = useState<TimeBudget>(parseBudget(null));
+  const [excluded, setExcluded] = useState<number | null>(null);
+  // Browser storage is read after hydration so server and client render the same first frame.
+  useEffect(() => {
+    if (orgId) setBudget(parseBudget(storageGet("local", budgetKey(orgId))));
+  }, [orgId]);
+  useEffect(() => {
+    setExcluded(isDemoMode() ? DEMO_EXCLUDED_DOMAINS.length : null);
+  }, []);
+  function pickBudget(b: TimeBudget) {
+    setBudget(b);
+    if (orgId) storageSet("local", budgetKey(orgId), b);
+  }
   const roles = me?.roles ?? [];
   const role = (roles[0] ?? "ae") as Role;
   const leader = roles.some((r) => r === "owner" || r === "sales_leader");
@@ -69,6 +87,7 @@ function HomePage() {
         <h1 className="page-title mt-1 max-w-[48ch] text-balance break-words [overflow-wrap:anywhere]">
           {data ? headline : hello}
         </h1>
+        <TrustLine excluded={excluded} />
       </header>
       <div className="space-y-8">
         <NowCard strategyPending={strategyPending} suggestion={best} />
@@ -115,8 +134,64 @@ function HomePage() {
             />
           </div>
         )}
-        <TodayInbox meetings={meetings} excludeSuggestionId={best?.id} />
+        <TodayInbox
+          meetings={meetings}
+          excludeSuggestionId={best?.id}
+          budget={budget}
+          controls={<BudgetPicker value={budget} onChange={pickBudget} />}
+        />
       </div>
+    </div>
+  );
+}
+
+/**
+ * V2 trust line: nothing leaves without the person's permission. The excluded-domains count only appears when
+ * there is a real list behind it (the demo today), never an invented number.
+ */
+function TrustLine({ excluded }: { excluded: number | null }) {
+  return (
+    <p className="mt-2 flex items-center gap-2 text-xs text-ink-mid">
+      <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-state-ok" />
+      <span className="min-w-0 break-words">
+        Nada sale sin tu permiso
+        {excluded ? ` · ${excluded} dominios excluidos (clientes e inversores)` : ""}
+      </span>
+    </p>
+  );
+}
+
+/** «¿Cuánto tiempo tienes?»: 15 min · 30 min · 1 h. «Hoy» shows only what fits; the rest waits, paused. */
+function BudgetPicker({
+  value,
+  onChange,
+}: {
+  value: TimeBudget;
+  onChange: (b: TimeBudget) => void;
+}) {
+  const hint = TIME_BUDGETS.find((b) => b.id === value)?.hint;
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Tiempo disponible hoy"
+      className="flex items-center gap-1"
+      title={hint}
+    >
+      {TIME_BUDGETS.map((b) => {
+        const on = b.id === value;
+        return (
+          <button
+            key={b.id}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onChange(b.id)}
+            className={`min-h-9 rounded-full border px-3 text-xs md:min-h-7 ${on ? "border-ink bg-ink text-ink-reverse" : "border-hairline text-ink-mid hover:text-ink"}`}
+          >
+            {b.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

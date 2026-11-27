@@ -1,6 +1,7 @@
 // Ronda 2B: the single «Hoy» list in Inicio — meetings, approvals, tasks, agent actions, replies and suggestions
 // in clean rows with a colored dot per kind. Reads what each screen already reads (RLS) and links to where it is
 // decided. Order and rows are pure in src/lib/today-inbox.ts (tested).
+import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -8,6 +9,7 @@ import { useMe } from "@/hooks/use-me";
 import { useSuggestions } from "@/components/suggestions";
 import { canDecideApprovals } from "@/lib/roles";
 import { KIND_LABEL, mergeInbox, type InboxItem, type InboxKind } from "@/lib/today-inbox";
+import { pausedNote, splitByBudget, type TimeBudget } from "@/lib/daily-queue";
 
 const MAX_ROWS = 8;
 
@@ -31,10 +33,16 @@ type Meeting = {
 export function TodayInbox({
   meetings,
   excludeSuggestionId,
+  budget,
+  controls,
 }: {
   meetings: Meeting[];
   /** The suggestion already shown in «Ahora», so it is not repeated here. */
   excludeSuggestionId?: string | null;
+  /** V2 time budget: only the highest-signal rows that fit; the rest stays paused, never overdue. */
+  budget?: TimeBudget;
+  /** Shown beside the «Hoy» title (the time selector). */
+  controls?: ReactNode;
 }) {
   const { data: me } = useMe();
   const userId = me?.user.id;
@@ -100,14 +108,18 @@ export function TodayInbox({
     },
     today,
   );
-  const shown = items.slice(0, MAX_ROWS);
+  const { shown, paused } = budget
+    ? splitByBudget(items, budget)
+    : { shown: items.slice(0, MAX_ROWS), paused: 0 };
+  const note = pausedNote(paused);
   return (
     <section aria-labelledby="today-title">
-      <div className="mb-2 flex items-baseline justify-between gap-3">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-3">
         <h2 id="today-title" className="section-title">
           Hoy
         </h2>
-        {items.length > MAX_ROWS && (
+        {controls}
+        {!budget && items.length > MAX_ROWS && (
           <Link to="/inbox" className="py-2 text-xs text-signal md:py-0">
             Ver las {items.length} →
           </Link>
@@ -125,6 +137,14 @@ export function TodayInbox({
             </li>
           ))}
         </ul>
+      )}
+      {note && (
+        <p className="mt-2 text-xs text-ink-mid">
+          {note}{" "}
+          <Link to="/inbox" className="underline underline-offset-4 hover:text-ink">
+            Ver todo
+          </Link>
+        </p>
       )}
     </section>
   );

@@ -5,7 +5,18 @@ import {
   NO_FILTERS,
   PLAN_WEEKS,
   addDecision,
+  adjustProposal,
   applyLocalState,
+  approveProposal,
+  goalToTest,
+  hasResettableChanges,
+  liveHypotheses,
+  proposalViews,
+  resetLocalState,
+  ritualHeadline,
+  sampleNote,
+  setGoal,
+  shiftFocus,
   barGeometry,
   criticalDependencies,
   criticalImpact,
@@ -189,6 +200,122 @@ describe("local state", () => {
     ).toEqual({
       tasks: { a: { doneSubtasks: ["x"] } },
       decisions: [{ id: "1", title: "t", date: "2026-01-01", validatedBy: "AE" }],
+      adjustments: {},
+      goal: null,
     });
+  });
+});
+
+describe("hypotheses", () => {
+  it("are consistent: focus adds up to 100 and linked tasks exist", () => {
+    const hs = EXAMPLE_PLAN.hypotheses;
+    expect(hs).toHaveLength(3);
+    expect(hs.reduce((n, h) => n + h.focus, 0)).toBe(100);
+    const ids = new Set(tasks.map((t) => t.id));
+    for (const h of hs) for (const t of h.taskIds) expect(ids.has(t), `${h.id} → ${t}`).toBe(true);
+    for (const p of EXAMPLE_PLAN.proposals) expect(hs.some((h) => h.id === p.target)).toBe(true);
+  });
+
+  it("shiftFocus gives the target its share and spreads the rest in proportion, total 100", () => {
+    const out = shiftFocus(EXAMPLE_PLAN.hypotheses, "h-b", 70);
+    expect(out.map((h) => [h.id, h.focus])).toEqual([
+      ["h-a", 20],
+      ["h-b", 70],
+      ["h-c", 10],
+    ]);
+    const odd = shiftFocus(EXAMPLE_PLAN.hypotheses, "h-a", 33);
+    expect(odd.reduce((n, h) => n + h.focus, 0)).toBe(100);
+    expect(shiftFocus(EXAMPLE_PLAN.hypotheses, "nope", 70)).toBe(EXAMPLE_PLAN.hypotheses);
+  });
+});
+
+describe("Ritual del Lunes", () => {
+  it("starts with two pending proposals that tell bad hypothesis from bad execution", () => {
+    const ps = proposalViews(EXAMPLE_PLAN, EMPTY_LOCAL_STATE);
+    expect(ps.map((p) => p.verdict)).toEqual(["hypothesis", "execution"]);
+    expect(ps.every((p) => p.executed === null)).toBe(true);
+    expect(ps[0].change).toBe(
+      "Mover el 70 % del foco a B y cambiar la oferta a «Diagnóstico rápido de 10 min».",
+    );
+    expect(ps[1].change).toMatch(/^Mantener el foco en C y cambiar la oferta a «.+»; enviar/);
+    expect(ritualHeadline(ps)).toBe("2 propuestas para esta semana, con la evidencia delante");
+  });
+
+  it("approving writes one decision with date, evidence and change, and applies it to the board", () => {
+    const s = approveProposal(EXAMPLE_PLAN, EMPTY_LOCAL_STATE, "p-focus-b", "2026-11-30");
+    expect(s.decisions).toEqual([
+      {
+        id: "ritual-p-focus-b",
+        title: "Mover el foco de A a B",
+        date: "2026-11-30",
+        validatedBy: "Owner",
+        evidence: EXAMPLE_PLAN.proposals[0].evidence,
+        change: "Mover el 70 % del foco a B y cambiar la oferta a «Diagnóstico rápido de 10 min».",
+        proposalId: "p-focus-b",
+        applied: { target: "h-b", focus: 70, offer: "Diagnóstico rápido de 10 min" },
+      },
+    ]);
+    // Idempotent: approving again does not write twice.
+    expect(approveProposal(EXAMPLE_PLAN, s, "p-focus-b", "2026-12-01")).toBe(s);
+    const b = liveHypotheses(EXAMPLE_PLAN, s).find((h) => h.id === "h-b")!;
+    expect(b).toMatchObject({ focus: 70, offer: "Diagnóstico rápido de 10 min" });
+    expect(ritualHeadline(proposalViews(EXAMPLE_PLAN, s))).toBe(
+      "Queda una propuesta por decidir esta semana",
+    );
+  });
+
+  it("«Ajustar» changes what approval applies; invalid adjustments are ignored", () => {
+    let s = adjustProposal(EMPTY_LOCAL_STATE, "p-focus-b", {
+      focus: 60,
+      offer: "Auditoría exprés",
+    });
+    expect(adjustProposal(s, "p-focus-b", { offer: "  " })).toBe(s);
+    expect(adjustProposal(s, "p-focus-b", { focus: 140 })).toBe(s);
+    expect(proposalViews(EXAMPLE_PLAN, s)[0].change).toBe(
+      "Mover el 60 % del foco a B y cambiar la oferta a «Auditoría exprés».",
+    );
+    s = approveProposal(EXAMPLE_PLAN, s, "p-focus-b", "2026-11-30");
+    expect(s.adjustments).toEqual({});
+    expect(liveHypotheses(EXAMPLE_PLAN, s).map((h) => h.focus)).toEqual([27, 60, 13]);
+  });
+
+  it("the commercial memory survives storage and «Restablecer ejemplo»", () => {
+    let s = approveProposal(EXAMPLE_PLAN, EMPTY_LOCAL_STATE, "p-fix-c", "2026-11-30");
+    s = setGoal(setTaskOverride(s, "t-icp", { status: "at_risk" }), 12);
+    const back = parseLocalState(JSON.stringify(s));
+    expect(back).toEqual(s);
+    expect(hasResettableChanges(back)).toBe(true);
+    const reset = resetLocalState(back);
+    expect(reset.decisions).toEqual(s.decisions);
+    expect(reset.goal).toBeNull();
+    expect(hasResettableChanges(reset)).toBe(false);
+    expect(proposalViews(EXAMPLE_PLAN, reset)[1].executed?.date).toBe("2026-11-30");
+  });
+
+  it("flags a small sample", () => {
+    expect(sampleNote(EXAMPLE_PLAN.hypotheses, EXAMPLE_PLAN.pace)).toBe(
+      "Muestra pequeña: 93 toques en 3 semanas. Lo leo como una señal, no como una sentencia.",
+    );
+  });
+});
+
+describe("Goal-to-Test", () => {
+  it("works the monthly goal back into weekly tests and warns when the pace falls short", () => {
+    const r = goalToTest(8, EXAMPLE_PLAN.hypotheses, EXAMPLE_PLAN.pace);
+    expect(r).toMatchObject({
+      testsPerWeekNow: 31,
+      testsPerWeekNeeded: 62,
+      projectedMeetings: 4,
+      onPace: false,
+    });
+    expect(r.message).toMatch(/necesitas 62 pruebas por semana y hoy haces 31/);
+    expect(goalToTest(4, EXAMPLE_PLAN.hypotheses, EXAMPLE_PLAN.pace).onPace).toBe(true);
+  });
+
+  it("does not invent a number without meetings, and rejects invalid goals", () => {
+    const none = EXAMPLE_PLAN.hypotheses.map((h) => ({ ...h, meetings: 0 }));
+    expect(goalToTest(8, none, EXAMPLE_PLAN.pace).testsPerWeekNeeded).toBeNull();
+    expect(setGoal(EMPTY_LOCAL_STATE, 0)).toBe(EMPTY_LOCAL_STATE);
+    expect(setGoal(EMPTY_LOCAL_STATE, 2.5)).toBe(EMPTY_LOCAL_STATE);
   });
 });
