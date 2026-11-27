@@ -72,7 +72,80 @@ export type PlanKpi = {
   better: "higher" | "lower";
 };
 
-export type Decision = { id: string; title: string; date: string; validatedBy: string };
+/**
+ * One entry of the commercial memory. Entries are append-only: nothing edits or deletes them. Decisions approved
+ * in the Ritual del Lunes also carry the evidence they were based on, the change applied and the proposal id.
+ */
+export type Decision = {
+  id: string;
+  title: string;
+  date: string;
+  validatedBy: string;
+  evidence?: string;
+  change?: string;
+  proposalId?: string;
+  /** What the approval applied to the hypotheses board. */
+  applied?: AppliedChange;
+};
+export type AppliedChange = { target: string; focus: number | null; offer: string };
+
+// ---------- Hypotheses, Ritual del Lunes and Goal-to-Test (V2) ----------
+
+export type Confidence = "low" | "medium" | "high";
+export const CONFIDENCE_LABEL: Record<Confidence, string> = {
+  low: "Bajo",
+  medium: "Medio",
+  high: "Alto",
+};
+
+/** A live go-to-market bet: who, which pain, which offer, and what the small sample says so far. */
+export type Hypothesis = {
+  id: string;
+  label: string;
+  version: "v1" | "v2";
+  tier: 1 | 2;
+  segment: string;
+  pain: string;
+  offer: string;
+  confidence: Confidence;
+  /** Share of the weekly effort (all hypotheses add up to 100). */
+  focus: number;
+  touches: number;
+  meetings: number;
+  /** Qualitative evidence: what people actually said or did. */
+  evidence: string[];
+  /** Plan tasks this hypothesis feeds (ids of PlanTask). */
+  taskIds: string[];
+};
+
+/**
+ * «hypothesis»: the bet itself is wrong (no pain, no urgency, wrong buyer).
+ * «execution»: the bet holds, but timing, channel or offer got in the way. Changing the bet would be a mistake.
+ */
+export type Verdict = "hypothesis" | "execution";
+export const VERDICT_LABEL: Record<Verdict, string> = {
+  hypothesis: "Mala hipótesis",
+  execution: "Ejecución o momento",
+};
+
+export type RitualProposal = {
+  id: string;
+  verdict: Verdict;
+  title: string;
+  /** The mentor's reading, evidence first. */
+  reading: string;
+  /** Short evidence line kept in the decision. */
+  evidence: string;
+  target: string;
+  /** Share of the weekly effort to move to the target; null keeps the current split. */
+  focus: number | null;
+  offer: string;
+  /** Extra instruction for the week (optional). */
+  extra?: string;
+};
+
+/** How the team is testing right now: tests (touches) and qualified meetings over the last weeks. */
+export type TestPace = { weeks: number };
 
 export type GtmPlan = {
   company: string;
@@ -81,6 +154,11 @@ export type GtmPlan = {
   kpis: PlanKpi[];
   decisions: Decision[];
   tasks: PlanTask[];
+  hypotheses: Hypothesis[];
+  proposals: RitualProposal[];
+  pace: TestPace;
+  /** Default monthly goal of qualified meetings. */
+  monthlyGoal: number;
 };
 
 const sub = (
@@ -164,6 +242,91 @@ export const EXAMPLE_PLAN: GtmPlan = {
       validatedBy: "Marketing",
     },
   ],
+  hypotheses: [
+    {
+      id: "h-a",
+      label: "A",
+      version: "v1",
+      tier: 1,
+      segment: "Mid-market tecnológico en España, 50 a 500 personas",
+      pain: "La factura cloud crece y nadie sabe por qué",
+      offer: "Demo de producto de 45 min",
+      confidence: "low",
+      focus: 50,
+      touches: 45,
+      meetings: 0,
+      evidence: [
+        "«Lo miramos el año que viene» (4 respuestas parecidas)",
+        "Reconocen el gasto, pero no hay una fecha que les obligue a moverse",
+      ],
+      taskIds: ["t-seq", "t-scale"],
+    },
+    {
+      id: "h-b",
+      label: "B",
+      version: "v2",
+      tier: 1,
+      segment: "Fintech con auditoría de costes cloud",
+      pain: "La auditoría pide justificar cada euro de cloud",
+      offer: "Prueba guiada de 14 días",
+      confidence: "medium",
+      focus: 25,
+      touches: 18,
+      meetings: 2,
+      evidence: [
+        "3 de 18 tienen contrato con su proveedor hasta septiembre y quieren llegar con datos",
+        "El CFO y el CTO deciden juntos: decisor validado en las dos reuniones",
+      ],
+      taskIds: ["t-fintech", "t-fintech-deals"],
+    },
+    {
+      id: "h-c",
+      label: "C",
+      version: "v1",
+      tier: 2,
+      segment: "Scale-ups en México después de una ronda",
+      pain: "El gasto cloud se dispara al crecer el equipo",
+      offer: "Webinar de ahorro cloud",
+      confidence: "medium",
+      focus: 25,
+      touches: 30,
+      meetings: 1,
+      evidence: [
+        "12 de 30 abrieron el correo, solo 1 respondió",
+        "Los envíos salieron el viernes por la tarde, hora de España",
+      ],
+      taskIds: ["t-webinar", "t-scale"],
+    },
+  ],
+  proposals: [
+    {
+      id: "p-focus-b",
+      verdict: "hypothesis",
+      title: "Mover el foco de A a B",
+      reading:
+        "No falló tu producto: en Hipótesis B, 3 de 18 dijeron que tienen contrato hasta septiembre (dolor y decisor validados). En Hipótesis A, 0 reuniones en 45 toques por falta de urgencia.",
+      evidence:
+        "B: 3 de 18 con contrato hasta septiembre, 2 reuniones. A: 0 reuniones en 45 toques.",
+      target: "h-b",
+      focus: 70,
+      offer: "Diagnóstico rápido de 10 min",
+    },
+    {
+      id: "p-fix-c",
+      verdict: "execution",
+      title: "Arreglar la ejecución de C antes de juzgarla",
+      reading:
+        "En Hipótesis C el problema no es el segmento: 12 de 30 abrieron, pero los envíos salieron un viernes por la tarde y pedíamos un webinar de una hora. Con 30 toques todavía no sabemos si la hipótesis es mala.",
+      evidence: "C: 12 de 30 abrieron, 1 respondió; envíos el viernes por la tarde.",
+      target: "h-c",
+      focus: null,
+      offer: "Llamada de 15 min con su cifra de gasto",
+      extra:
+        "enviar martes y miércoles por la mañana, hora de México, y volver a mirarla en dos semanas",
+    },
+  ],
+  pace: { weeks: 3 },
+  monthlyGoal: 8,
   tasks: [
     // Posicionamiento e ICP
     {
@@ -564,11 +727,38 @@ export function planHeadline(tasks: PlanTask[]): string {
 // ---------- Local state (React + localStorage) ----------
 
 export type TaskOverride = { status?: TaskStatus; note?: string; doneSubtasks?: string[] };
+/** What the person changed in a proposal with «Ajustar» before approving it. */
+export type ProposalAdjustment = { focus?: number | null; offer?: string };
 export type PlanLocalState = {
   tasks: Record<string, TaskOverride>;
   decisions: Decision[];
+  adjustments: Record<string, ProposalAdjustment>;
+  /** Monthly goal of qualified meetings; null uses the plan's default. */
+  goal: number | null;
 };
-export const EMPTY_LOCAL_STATE: PlanLocalState = { tasks: {}, decisions: [] };
+export const EMPTY_LOCAL_STATE: PlanLocalState = {
+  tasks: {},
+  decisions: [],
+  adjustments: {},
+  goal: null,
+};
+
+/**
+ * «Restablecer ejemplo» brings tasks, goal and pending adjustments back, but keeps the decisions:
+ * the commercial memory is append-only, and executed proposals stay executed.
+ */
+export function resetLocalState(local: PlanLocalState): PlanLocalState {
+  return { ...EMPTY_LOCAL_STATE, decisions: local.decisions };
+}
+
+/** True when there is something «Restablecer ejemplo» would undo (decisions never count). */
+export function hasResettableChanges(local: PlanLocalState): boolean {
+  return (
+    Object.keys(local.tasks).length > 0 ||
+    Object.keys(local.adjustments).length > 0 ||
+    local.goal !== null
+  );
+}
 export const PLAN_STORAGE_KEY = "nokko-gtm-plan-v1";
 
 /** Applies the person's local changes on top of the plan. Unknown task or subtask ids are ignored. */
@@ -661,7 +851,237 @@ export function parseLocalState(raw: string | null): PlanLocalState {
           ),
       )
     : [];
-  return { tasks, decisions };
+  const adjustments: Record<string, ProposalAdjustment> = {};
+  const rawAdj = (data as { adjustments?: unknown }).adjustments;
+  if (rawAdj && typeof rawAdj === "object" && !Array.isArray(rawAdj)) {
+    for (const [id, v] of Object.entries(rawAdj as Record<string, unknown>)) {
+      if (!v || typeof v !== "object") continue;
+      const o = v as Record<string, unknown>;
+      const clean: ProposalAdjustment = {};
+      if (o.focus === null || isFocus(o.focus)) clean.focus = o.focus as number | null;
+      if (typeof o.offer === "string" && o.offer.trim()) clean.offer = o.offer;
+      adjustments[id] = clean;
+    }
+  }
+  const rawGoal = (data as { goal?: unknown }).goal;
+  const goal = isGoal(rawGoal) ? rawGoal : null;
+  return { tasks, decisions: decisions.map(cleanDecision), adjustments, goal };
+}
+
+const OPTIONAL_DECISION_KEYS = ["evidence", "change", "proposalId"] as const;
+/** Keeps the four required fields and only the optional ones that are strings. */
+function cleanDecision(x: Decision): Decision {
+  const out: Decision = { id: x.id, title: x.title, date: x.date, validatedBy: x.validatedBy };
+  for (const k of OPTIONAL_DECISION_KEYS) {
+    const v = (x as Record<string, unknown>)[k];
+    if (typeof v === "string") out[k] = v;
+  }
+  const a = (x as { applied?: unknown }).applied;
+  if (a && typeof a === "object") {
+    const o = a as Record<string, unknown>;
+    if (
+      typeof o.target === "string" &&
+      typeof o.offer === "string" &&
+      (o.focus === null || isFocus(o.focus))
+    )
+      out.applied = { target: o.target, focus: o.focus as number | null, offer: o.offer };
+  }
+  return out;
+}
+
+const isFocus = (v: unknown): v is number =>
+  typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 100;
+export const MAX_MONTHLY_GOAL = 999;
+const isGoal = (v: unknown): v is number =>
+  typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= MAX_MONTHLY_GOAL;
+
+// ---------- Ritual del Lunes ----------
+
+export type ProposalView = RitualProposal & {
+  /** Values after «Ajustar»; what approval will apply. */
+  focus: number | null;
+  offer: string;
+  change: string;
+  executed: Decision | null;
+};
+
+/** The change in one sentence, as it will be applied and written in the decision. */
+export function proposalChange(
+  p: Pick<RitualProposal, "focus" | "offer" | "extra" | "target">,
+  hypotheses: Hypothesis[],
+): string {
+  const label = hypotheses.find((h) => h.id === p.target)?.label ?? "";
+  const head =
+    p.focus == null
+      ? `Mantener el foco en ${label} y cambiar la oferta a «${p.offer}»`
+      : `Mover el ${p.focus} % del foco a ${label} y cambiar la oferta a «${p.offer}»`;
+  return p.extra ? `${head}; ${p.extra}.` : `${head}.`;
+}
+
+export function proposalViews(plan: GtmPlan, local: PlanLocalState): ProposalView[] {
+  const decisions = [...local.decisions, ...plan.decisions];
+  return plan.proposals.map((p) => {
+    const executed = decisions.find((d) => d.proposalId === p.id) ?? null;
+    const adj = executed ? {} : (local.adjustments[p.id] ?? {});
+    const focus = adj.focus !== undefined ? adj.focus : p.focus;
+    const offer = adj.offer ?? p.offer;
+    return {
+      ...p,
+      focus,
+      offer,
+      change: executed?.change ?? proposalChange({ ...p, focus, offer }, plan.hypotheses),
+      executed,
+    };
+  });
+}
+
+export function adjustProposal(
+  local: PlanLocalState,
+  id: string,
+  adj: ProposalAdjustment,
+): PlanLocalState {
+  const offer = adj.offer?.trim();
+  if (adj.offer !== undefined && !offer) return local;
+  if (adj.focus !== undefined && adj.focus !== null && !isFocus(adj.focus)) return local;
+  const clean: ProposalAdjustment = { ...local.adjustments[id] };
+  if (adj.focus !== undefined) clean.focus = adj.focus;
+  if (offer) clean.offer = offer;
+  return { ...local, adjustments: { ...local.adjustments, [id]: clean } };
+}
+
+/**
+ * Approving executes the proposal and appends it to the commercial memory with date, evidence and the change
+ * applied. Idempotent: a proposal already in the memory is never written twice.
+ */
+export function approveProposal(
+  plan: GtmPlan,
+  local: PlanLocalState,
+  id: string,
+  date: string,
+): PlanLocalState {
+  const view = proposalViews(plan, local).find((p) => p.id === id);
+  if (!view || view.executed || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return local;
+  const { [id]: _done, ...adjustments } = local.adjustments;
+  const decision: Decision = {
+    id: `ritual-${id}`,
+    title: view.title,
+    date,
+    validatedBy: "Owner",
+    evidence: view.evidence,
+    change: view.change,
+    proposalId: id,
+    applied: { target: view.target, focus: view.focus, offer: view.offer },
+  };
+  return { ...local, adjustments, decisions: [decision, ...local.decisions] };
+}
+
+/**
+ * Moves `share` % of the effort to `target` and spreads the rest over the others in proportion to what they had.
+ * Rounds to whole points and keeps the total at exactly 100.
+ */
+export function shiftFocus(hypotheses: Hypothesis[], target: string, share: number): Hypothesis[] {
+  if (!hypotheses.some((h) => h.id === target)) return hypotheses;
+  const s = Math.min(100, Math.max(0, Math.round(share)));
+  const others = hypotheses.filter((h) => h.id !== target);
+  const otherTotal = others.reduce((n, h) => n + h.focus, 0);
+  const rest = 100 - s;
+  const raw = others.map((h) =>
+    otherTotal > 0 ? (h.focus / otherTotal) * rest : rest / others.length,
+  );
+  const rounded = raw.map(Math.floor);
+  let left = rest - rounded.reduce((n, x) => n + x, 0);
+  // Largest remainders first, so the split stays fair.
+  const order = raw.map((x, i) => ({ i, r: x - Math.floor(x) })).sort((a, b) => b.r - a.r);
+  for (const { i } of order) {
+    if (left <= 0) break;
+    rounded[i] += 1;
+    left -= 1;
+  }
+  const byId = new Map(others.map((h, i) => [h.id, rounded[i]]));
+  return hypotheses.map((h) => ({
+    ...h,
+    focus: h.id === target ? s : (byId.get(h.id) ?? h.focus),
+  }));
+}
+
+/** Hypotheses as they are after the executed proposals (oldest first): focus and offer changes applied. */
+export function liveHypotheses(plan: GtmPlan, local: PlanLocalState): Hypothesis[] {
+  const executed = proposalViews(plan, local)
+    .filter((p) => p.executed)
+    .sort((a, b) => (a.executed!.date < b.executed!.date ? -1 : 1));
+  let hs = plan.hypotheses;
+  for (const p of executed) {
+    // The decision is the record of what was applied, including any «Ajustar» change.
+    const a = p.executed!.applied ?? { target: p.target, focus: p.focus, offer: p.offer };
+    if (a.focus !== null) hs = shiftFocus(hs, a.target, a.focus);
+    hs = hs.map((h) => (h.id === a.target ? { ...h, offer: a.offer } : h));
+  }
+  return hs;
+}
+
+export function ritualHeadline(proposals: ProposalView[]): string {
+  const pending = proposals.filter((p) => !p.executed).length;
+  if (pending === 0) return "Ritual hecho: los cambios de esta semana ya están en marcha";
+  if (pending === 1) return "Queda una propuesta por decidir esta semana";
+  return `${pending} propuestas para esta semana, con la evidencia delante`;
+}
+
+/** Sample-size caveat: with few touches the reading is a signal, not a verdict. */
+export function sampleNote(hypotheses: Hypothesis[], pace: TestPace): string {
+  const touches = hypotheses.reduce((n, h) => n + h.touches, 0);
+  const weeks = `${pace.weeks} ${pace.weeks === 1 ? "semana" : "semanas"}`;
+  return touches < 200
+    ? `Muestra pequeña: ${touches} toques en ${weeks}. Lo leo como una señal, no como una sentencia.`
+    : `${touches} toques en ${weeks}: la muestra ya permite comparar hipótesis.`;
+}
+
+// ---------- Goal-to-Test ----------
+
+export const WEEKS_PER_MONTH = 4;
+
+export type GoalToTest = {
+  goal: number;
+  /** Meetings per test with the current evidence (0 when there are no meetings yet). */
+  rate: number;
+  testsPerWeekNow: number;
+  /** Weekly tests needed for the goal; null when there is no rate to calculate from. */
+  testsPerWeekNeeded: number | null;
+  projectedMeetings: number;
+  onPace: boolean;
+  message: string;
+};
+
+/** Works backwards from the monthly goal to the weekly tests it needs, with the rate the hypotheses show. */
+export function goalToTest(goal: number, hypotheses: Hypothesis[], pace: TestPace): GoalToTest {
+  const touches = hypotheses.reduce((n, h) => n + h.touches, 0);
+  const meetings = hypotheses.reduce((n, h) => n + h.meetings, 0);
+  const weeks = Math.max(1, pace.weeks);
+  const testsPerWeekNow = Math.round(touches / weeks);
+  const rate = touches > 0 ? meetings / touches : 0;
+  if (rate === 0) {
+    return {
+      goal,
+      rate,
+      testsPerWeekNow,
+      testsPerWeekNeeded: null,
+      projectedMeetings: 0,
+      onPace: false,
+      message:
+        "Todavía no hay reuniones con qué calcular. Antes de subir volumen, consigue la primera con una sola hipótesis.",
+    };
+  }
+  const testsPerWeekNeeded = Math.ceil(goal / rate / WEEKS_PER_MONTH);
+  const projectedMeetings = Math.floor(testsPerWeekNow * WEEKS_PER_MONTH * rate);
+  const onPace = testsPerWeekNow >= testsPerWeekNeeded;
+  const every = Math.round(1 / rate);
+  const message = onPace
+    ? `Con 1 reunión cada ${every} toques, tu ritmo de ${testsPerWeekNow} pruebas por semana llega a la meta.`
+    : `Con 1 reunión cada ${every} toques necesitas ${testsPerWeekNeeded} pruebas por semana y hoy haces ${testsPerWeekNow}. A este ritmo llegas a unas ${projectedMeetings} de ${goal}: o subes el volumen o subes la tasa, y lo segundo suele costar menos.`;
+  return { goal, rate, testsPerWeekNow, testsPerWeekNeeded, projectedMeetings, onPace, message };
+}
+
+export function setGoal(local: PlanLocalState, goal: number): PlanLocalState {
+  return isGoal(goal) ? { ...local, goal } : local;
 }
 
 /** «20 ene 2026» from an ISO date, without timezone drift. */

@@ -7,6 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { GtmGantt } from "@/components/strategy/gtm-gantt";
 import { GtmTaskSheet } from "@/components/strategy/gtm-task-sheet";
+import { GoalToTest } from "@/components/strategy/goal-to-test";
+import { HypothesisBoard } from "@/components/strategy/hypothesis-board";
+import { MondayRitual } from "@/components/strategy/monday-ritual";
 import { useCurrency } from "@/hooks/use-me";
 import {
   EMPTY_LOCAL_STATE,
@@ -15,11 +18,20 @@ import {
   OBJECTIVE_LABEL,
   PLAN_STORAGE_KEY,
   addDecision,
+  adjustProposal,
   applyLocalState,
+  approveProposal,
   formatPlanDate,
+  goalToTest,
+  hasResettableChanges,
   kpiProgress,
+  liveHypotheses,
   parseLocalState,
   planHeadline,
+  proposalViews,
+  resetLocalState,
+  sampleNote,
+  setGoal,
   setTaskOverride,
   statusCounts,
   toggleSubtask,
@@ -60,10 +72,13 @@ function usePlanLocalState(): [PlanLocalState, (f: (s: PlanLocalState) => PlanLo
   return [state, (f) => setState((s) => f(s))];
 }
 
-function todayIso(): string {
-  const d = new Date();
+function isoDate(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function todayIso(): string {
+  return isoDate(new Date());
 }
 
 /** Strategy tab: wires the company currency into the plan view. */
@@ -88,13 +103,40 @@ export function GtmPlanView({
   const openTask = view.tasks.find((t) => t.id === openId) ?? null;
   const todayWeek = today.getFullYear() === plan.year ? weekOfYear(today) : null;
   const counts = statusCounts(view.tasks);
-  const hasLocalChanges = Object.keys(local.tasks).length > 0 || local.decisions.length > 0;
+  const hasLocalChanges = hasResettableChanges(local);
+  const proposals = useMemo(() => proposalViews(plan, local), [plan, local]);
+  const hypotheses = useMemo(() => liveHypotheses(plan, local), [plan, local]);
+  const goal = goalToTest(local.goal ?? plan.monthlyGoal, hypotheses, plan.pace);
 
   const formatKpi = (k: PlanKpi, n: number) =>
     k.unit === "money" ? money(n, true) : k.unit === "percent" ? `${n} %` : n.toLocaleString("es");
 
   return (
     <div className="space-y-8">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-meta">
+          Plan de ejemplo con datos ficticios. Tus cambios se guardan solo en este navegador.
+        </p>
+        {hasLocalChanges && (
+          <Button size="sm" variant="ghost" onClick={() => update(resetLocalState)}>
+            <IconText icon={RotateCcw}>Restablecer ejemplo</IconText>
+          </Button>
+        )}
+      </div>
+
+      <MondayRitual
+        company={plan.company}
+        proposals={proposals}
+        hypotheses={hypotheses}
+        sampleNote={sampleNote(hypotheses, plan.pace)}
+        onApprove={(id) => update((s) => approveProposal(plan, s, id, isoDate(today)))}
+        onAdjust={(id, adj) => update((s) => adjustProposal(s, id, adj))}
+      />
+
+      <GoalToTest result={goal} onGoalChange={(n) => update((s) => setGoal(s, n))} />
+
+      <HypothesisBoard hypotheses={hypotheses} tasks={view.tasks} onOpenTask={setOpenId} />
+
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="eyebrow">
@@ -103,15 +145,7 @@ export function GtmPlanView({
           <h2 className="mt-1 font-display text-xl font-semibold text-balance">
             {planHeadline(view.tasks)}
           </h2>
-          <p className="text-meta mt-1">
-            Plan de ejemplo con datos ficticios. Tus cambios se guardan solo en este navegador.
-          </p>
         </div>
-        {hasLocalChanges && (
-          <Button size="sm" variant="ghost" onClick={() => update(() => EMPTY_LOCAL_STATE)}>
-            <IconText icon={RotateCcw}>Restablecer ejemplo</IconText>
-          </Button>
-        )}
       </div>
 
       <section aria-labelledby="gtm-objectives" className="space-y-3">
@@ -203,7 +237,7 @@ function Decisions({
 
   return (
     <Panel
-      title="Decisiones clave"
+      title="Decisiones · Memoria comercial"
       action={
         !open && (
           <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
@@ -256,13 +290,36 @@ function Decisions({
           </div>
         </form>
       )}
+      <p className="text-meta mb-2">
+        Lo que se decidió, cuándo y con qué evidencia. No se edita ni se borra: si algo cambia, se
+        registra una decisión nueva.
+      </p>
       <ul className="divide-y divide-hairline">
         {decisions.map((d) => (
-          <li key={d.id} className="flex flex-wrap items-baseline justify-between gap-x-4 py-2">
-            <span className="min-w-0 text-sm">{d.title}</span>
-            <span className="text-meta">
-              {formatPlanDate(d.date)} · validó {d.validatedBy}
-            </span>
+          <li key={d.id} className="py-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4">
+              <span className="min-w-0 text-sm">{d.title}</span>
+              <span className="text-meta">
+                {formatPlanDate(d.date)} · validó {d.validatedBy}
+                {d.proposalId ? " · Ritual del lunes" : ""}
+              </span>
+            </div>
+            {(d.evidence || d.change) && (
+              <dl className="mt-1 space-y-0.5 text-xs text-ink-mid">
+                {d.evidence && (
+                  <div>
+                    <dt className="inline font-medium">Evidencia: </dt>
+                    <dd className="inline">{d.evidence}</dd>
+                  </div>
+                )}
+                {d.change && (
+                  <div>
+                    <dt className="inline font-medium">Cambio aplicado: </dt>
+                    <dd className="inline">{d.change}</dd>
+                  </div>
+                )}
+              </dl>
+            )}
           </li>
         ))}
       </ul>
